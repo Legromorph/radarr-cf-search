@@ -168,7 +168,8 @@ if PROCESS_SONARR:
 
         series_url = SONARR_URL + API_PATH + "series/" + str(series_id)
         series_data = requests.get(series_url, headers=sonarr_headers).json()
-        series_data["tags"] = series_data.get("tags", []) + [tag_id]
+        if tag_id not in series_data.get("tags", []):
+            series_data["tags"] = series_data.get("tags", []) + [tag_id]
         requests.put(series_url, headers=sonarr_headers, json=series_data)
 
     # Execute Sonarr upgrade
