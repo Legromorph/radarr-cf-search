@@ -1,189 +1,205 @@
-from requests.auth import HTTPBasicAuth
-from dotenv import load_dotenv
+from __future__ import annotations
 import os
-import requests
 import random
 import logging
+from typing import Dict, List, Any
+
+import requests
+from requests import Response
+from dotenv import load_dotenv
+
 
 # ----------------------
 # Logger
 # ----------------------
-logger = logging.getLogger(__name__)
+LOG_FILE = "/config/output.log"
+
 logging.basicConfig(
-    filename='/config/output.log',
-    encoding='utf-8',
-    format='%(asctime)s %(message)s',
-    datefmt='%m/%d/%Y %I:%M:%S %p',
-    level=logging.INFO
+    filename=LOG_FILE,
+    encoding="utf-8",
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    level=logging.INFO,
 )
+logger = logging.getLogger(__name__)
+
 
 # ----------------------
-# Load .env
+# Load environment variables
 # ----------------------
 load_dotenv(dotenv_path="/config/.env")
 
-# ----------------------
-# Radarr variables
-# ----------------------
-process_radarr_str = os.getenv("PROCESS_RADARR")
-PROCESS_RADARR = process_radarr_str.lower() == "true" if process_radarr_str else False
-RADARR_API_KEY = os.getenv("RADARR_API_KEY")
-RADARR_URL = os.getenv("RADARR_URL")
-NUM_MOVIES_TO_UPGRADE = int(os.getenv("NUM_MOVIES_TO_UPGRADE"))
-logger.debug(f"Radarr API Key: {RADARR_API_KEY}, URL: {RADARR_URL}, Num to Upgrade: {NUM_MOVIES_TO_UPGRADE}")
-
-MOVIE_ENDPOINT = "movie"
-MOVIEFILE_ENDPOINT = "moviefile/"
 API_PATH = "/api/v3/"
-QUALITY_PROFILE_ENDPOINT = "qualityprofile"
-COMMAND_ENDPOINT = "command"
+UPGRADE_TAG = os.getenv("UPGRADE_TAG", "upgrade-cf")
+
+
+def get_env_bool(key: str, default: bool = False) -> bool:
+    """Safely read a boolean from environment variables."""
+    val = os.getenv(key)
+    return val.lower() == "true" if val else default
+
+
+def get_env_int(key: str, default: int = 0) -> int:
+    """Safely read an integer from environment variables."""
+    val = os.getenv(key)
+    return int(val) if val and val.isdigit() else default
+
 
 # ----------------------
-# Sonarr variables
+# Common API helpers
 # ----------------------
-process_sonarr_str = os.getenv("PROCESS_SONARR")
-PROCESS_SONARR = process_sonarr_str.lower() == "true" if process_sonarr_str else False
-SONARR_API_KEY = os.getenv("SONARR_API_KEY")
-SONARR_URL = os.getenv("SONARR_URL")
-NUM_EPISODES_TO_UPGRADE = int(os.getenv("NUM_EPISODES_TO_UPGRADE"))
-logger.debug(f"Sonarr API Key: {SONARR_API_KEY}, URL: {SONARR_URL}, Num to Upgrade: {NUM_EPISODES_TO_UPGRADE}")
+def api_get(url: str, headers: Dict[str, str]) -> Any:
+    """Wrapper for GET requests with error handling."""
+    resp: Response = requests.get(url, headers=headers)
+    resp.raise_for_status()
+    return resp.json()
 
-SERIES_ENDPOINT = "series"
-EPISODEFILE_ENDPOINT = "episodefile"
-EPISODE_ENDPOINT = "episode"
 
-# ----------------------
-# Upgrade Tag
-# ----------------------
-UPGRADE_TAG = os.getenv("UPGRADE_TAG", "upgrade-de")
+def api_post(url: str, headers: Dict[str, str], payload: Dict[str, Any]) -> Any:
+    """Wrapper for POST requests with error handling."""
+    resp: Response = requests.post(url, headers=headers, json=payload)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def api_put(url: str, headers: Dict[str, str], payload: Dict[str, Any]) -> Any:
+    """Wrapper for PUT requests with error handling."""
+    resp: Response = requests.put(url, headers=headers, json=payload)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def ensure_tag_exists(base_url: str, headers: Dict[str, str], tag_name: str) -> int:
+    """Ensure tag exists, return its ID."""
+    tag_url = f"{base_url}{API_PATH}tag"
+    tags = api_get(tag_url, headers)
+    tag_id = next((t["id"] for t in tags if t["label"] == tag_name), None)
+
+    if tag_id is None:
+        tag_id = api_post(tag_url, headers, {"label": tag_name})["id"]
+        logger.info(f"Created new tag '{tag_name}' with ID {tag_id}")
+
+    return tag_id
+
 
 # ----------------------
 # Radarr functions
 # ----------------------
-if PROCESS_RADARR:
-    radarr_headers = {'Authorization': RADARR_API_KEY}
-    quality_to_formats = {}
-    movie_files = {}
+def run_radarr_upgrade():
+    radarr_enabled = get_env_bool("PROCESS_RADARR")
+    if not radarr_enabled:
+        return
 
-    def get_radarr_quality_cutoff_scores():
-        url = RADARR_URL + API_PATH + QUALITY_PROFILE_ENDPOINT
-        for q in requests.get(url, headers=radarr_headers).json():
-            quality_to_formats[q["id"]] = q["cutoffFormatScore"]
+    base_url = os.getenv("RADARR_URL", "")
+    headers = {"Authorization": os.getenv("RADARR_API_KEY", "")}
+    num_to_upgrade = get_env_int("NUM_MOVIES_TO_UPGRADE", 1)
 
-    def get_movies():
-        logger.info("Querying Movies API")
-        url = RADARR_URL + API_PATH + MOVIE_ENDPOINT
-        return requests.get(url, headers=radarr_headers).json()
+    logger.info("Starting Radarr upgrade process")
 
-    def get_movie_files(movies):
-        logger.info("Querying MovieFiles API")
-        for movie in movies:
-            is_monitored = str(movie["monitored"]).lower() == "true"
-            if movie.get("movieFileId", 0) > 0 and is_monitored:
-                url = RADARR_URL + API_PATH + MOVIEFILE_ENDPOINT + str(movie["movieFileId"])
-                movie_file = requests.get(url, headers=radarr_headers).json()
-                profile_id = movie["qualityProfileId"]
-                if movie_file["customFormatScore"] < quality_to_formats[profile_id]:
-                    movie_files[movie["id"]] = {
-                        "title": movie["title"],
-                        "customFormatScore": movie_file["customFormatScore"],
-                        "wantedCustomFormatScore": quality_to_formats[profile_id]
-                    }
-        return movie_files
+    quality_profiles = api_get(f"{base_url}{API_PATH}qualityprofile", headers)
+    quality_scores = {q["id"]: q["cutoffFormatScore"] for q in quality_profiles}
 
-    def add_tag_to_movie(movie_id, tag_name):
-        # Get or create tag
-        url = RADARR_URL + API_PATH + "tag"
-        tags = requests.get(url, headers=radarr_headers).json()
-        tag_id = next((t["id"] for t in tags if t["label"] == tag_name), None)
-        if not tag_id:
-            tag_id = requests.post(url, headers=radarr_headers, json={"label": tag_name}).json()["id"]
+    movies = api_get(f"{base_url}{API_PATH}movie", headers)
+    upgrade_candidates: Dict[int, Dict[str, Any]] = {}
 
-        # Update movie with tag
-        movie_url = RADARR_URL + API_PATH + "movie/" + str(movie_id)
-        movie = requests.get(movie_url, headers=radarr_headers).json()
-        movie["tags"] = movie.get("tags", []) + [tag_id]
-        requests.put(movie_url, headers=radarr_headers, json=movie)
+    for movie in movies:
+        if not movie.get("monitored") or not movie.get("movieFileId"):
+            continue
 
-    # Execute Radarr upgrade
-    logger.info("Querying Radarr Quality Custom Format Cutoff Scores")
-    get_radarr_quality_cutoff_scores()
-    movies = get_movies()
-    movie_files = get_movie_files(movies)
-    random_keys = list(set(random.choices(list(movie_files.keys()), k=NUM_MOVIES_TO_UPGRADE)))
+        file_data = api_get(f"{base_url}{API_PATH}moviefile/{movie['movieFileId']}", headers)
+        profile_id = movie["qualityProfileId"]
 
-    data = {"name": "MoviesSearch", "movieIds": random_keys}
-    logger.info(f"Keys to search: {random_keys}")
-    for key in random_keys:
-        logger.info(f"Starting search for {movie_files[key]['title']}")
-        add_tag_to_movie(key, UPGRADE_TAG)
+        if file_data["customFormatScore"] < quality_scores[profile_id]:
+            upgrade_candidates[movie["id"]] = {
+                "title": movie["title"],
+                "currentScore": file_data["customFormatScore"],
+                "requiredScore": quality_scores[profile_id],
+            }
 
-    SEARCH_MOVIES_POST_API_CALL = RADARR_URL + API_PATH + COMMAND_ENDPOINT
-    requests.post(SEARCH_MOVIES_POST_API_CALL, headers=radarr_headers, json=data)
+    if not upgrade_candidates:
+        logger.info("No Radarr movies found for upgrade.")
+        return
+
+    selected_ids = random.sample(list(upgrade_candidates.keys()), k=min(num_to_upgrade, len(upgrade_candidates)))
+    logger.info(f"Selected movies for upgrade: {selected_ids}")
+
+    tag_id = ensure_tag_exists(base_url, headers, UPGRADE_TAG)
+
+    for movie_id in selected_ids:
+        movie_url = f"{base_url}{API_PATH}movie/{movie_id}"
+        movie_data = api_get(movie_url, headers)
+        movie_data["tags"] = list(set(movie_data.get("tags", [])) | {tag_id})
+        api_put(movie_url, headers, movie_data)
+        logger.info(f"Tagged movie '{upgrade_candidates[movie_id]['title']}' with '{UPGRADE_TAG}'")
+
+    api_post(f"{base_url}{API_PATH}command", headers, {"name": "MoviesSearch", "movieIds": selected_ids})
+    logger.info("Triggered Radarr search command.")
+
 
 # ----------------------
 # Sonarr functions
 # ----------------------
-if PROCESS_SONARR:
-    sonarr_headers = {'Authorization': SONARR_API_KEY}
-    quality_to_formats = {}
-    episode_files = {}
+def run_sonarr_upgrade():
+    sonarr_enabled = get_env_bool("PROCESS_SONARR")
+    if not sonarr_enabled:
+        return
 
-    def get_sonarr_quality_cutoff_scores():
-        url = SONARR_URL + API_PATH + QUALITY_PROFILE_ENDPOINT
-        for q in requests.get(url, headers=sonarr_headers).json():
-            quality_to_formats[q["id"]] = q["cutoffFormatScore"]
+    base_url = os.getenv("SONARR_URL", "")
+    headers = {"Authorization": os.getenv("SONARR_API_KEY", "")}
+    num_to_upgrade = get_env_int("NUM_EPISODES_TO_UPGRADE", 1)
 
-    def get_series():
-        logger.info("Querying Series API")
-        url = SONARR_URL + API_PATH + SERIES_ENDPOINT
-        return requests.get(url, headers=sonarr_headers).json()
+    logger.info("Starting Sonarr upgrade process")
 
-    def get_episode_files(series_list):
-        logger.info("Querying EpisodeFiles API")
-        for serie in series_list:
-            profile_id = serie["qualityProfileId"]
-            if serie["statistics"]["episodeFileCount"] > 0:
-                url = SONARR_URL + API_PATH + EPISODEFILE_ENDPOINT + f"?seriesId={serie['id']}"
-                episodes = requests.get(url, headers=sonarr_headers).json()
-                for episode in episodes:
-                    if episode["customFormatScore"] < quality_to_formats[profile_id]:
-                        ep_url = SONARR_URL + API_PATH + EPISODE_ENDPOINT + f"?episodeFileId={episode['id']}"
-                        ep_data = requests.get(ep_url, headers=sonarr_headers).json()
-                        if str(ep_data[0]["monitored"]).lower() == "true":
-                            episode_files[ep_data[0]["id"]] = {
-                                "title": ep_data[0]["title"],
-                                "seriesId": serie["id"],
-                                "customFormatScore": episode["customFormatScore"],
-                                "wantedCustomFormatScore": quality_to_formats[profile_id]
-                            }
-        return episode_files
+    quality_profiles = api_get(f"{base_url}{API_PATH}qualityprofile", headers)
+    quality_scores = {q["id"]: q["cutoffFormatScore"] for q in quality_profiles}
 
-    def add_tag_to_series(series_id, tag_name):
-        url = SONARR_URL + API_PATH + "tag"
-        tags = requests.get(url, headers=sonarr_headers).json()
-        tag_id = next((t["id"] for t in tags if t["label"] == tag_name), None)
-        if not tag_id:
-            tag_id = requests.post(url, headers=sonarr_headers, json={"label": tag_name}).json()["id"]
+    series_list = api_get(f"{base_url}{API_PATH}series", headers)
+    upgrade_candidates: Dict[int, Dict[str, Any]] = {}
 
-        series_url = SONARR_URL + API_PATH + "series/" + str(series_id)
-        series_data = requests.get(series_url, headers=sonarr_headers).json()
-        if tag_id not in series_data.get("tags", []):
-            series_data["tags"] = series_data.get("tags", []) + [tag_id]
-        requests.put(series_url, headers=sonarr_headers, json=series_data)
+    for serie in series_list:
+        profile_id = serie["qualityProfileId"]
+        if serie["statistics"]["episodeFileCount"] == 0:
+            continue
 
-    # Execute Sonarr upgrade
-    logger.info("Querying Sonarr Quality Custom Format Cutoff Scores")
-    get_sonarr_quality_cutoff_scores()
-    series_list = get_series()
-    episode_files = get_episode_files(series_list)
-    random_keys = list(set(random.choices(list(episode_files.keys()), k=NUM_EPISODES_TO_UPGRADE)))
+        episodes = api_get(f"{base_url}{API_PATH}episodefile?seriesId={serie['id']}", headers)
+        for ep in episodes:
+            if ep["customFormatScore"] < quality_scores[profile_id]:
+                ep_data = api_get(f"{base_url}{API_PATH}episode?episodeFileId={ep['id']}", headers)
+                episode = ep_data[0]
+                if not episode.get("monitored"):
+                    continue
 
-    data = {"name": "EpisodeSearch", "episodeIds": random_keys}
-    logger.info(f"Keys to search: {random_keys}")
-    for key in random_keys:
-        logger.info(f"Starting search for {episode_files[key]['title']}")
-        add_tag_to_series(episode_files[key]["seriesId"], UPGRADE_TAG)
+                upgrade_candidates[episode["id"]] = {
+                    "title": episode["title"],
+                    "seriesId": serie["id"],
+                    "currentScore": ep["customFormatScore"],
+                    "requiredScore": quality_scores[profile_id],
+                }
 
-    SEARCH_EPISODES_POST_API_CALL = SONARR_URL + API_PATH + COMMAND_ENDPOINT
-    requests.post(SEARCH_EPISODES_POST_API_CALL, headers=sonarr_headers, json=data)
+    if not upgrade_candidates:
+        logger.info("No Sonarr episodes found for upgrade.")
+        return
+
+    selected_ids = random.sample(list(upgrade_candidates.keys()), k=min(num_to_upgrade, len(upgrade_candidates)))
+    logger.info(f"Selected episodes for upgrade: {selected_ids}")
+
+    tag_id = ensure_tag_exists(base_url, headers, UPGRADE_TAG)
+
+    for ep_id in selected_ids:
+        series_id = upgrade_candidates[ep_id]["seriesId"]
+        series_url = f"{base_url}{API_PATH}series/{series_id}"
+        series_data = api_get(series_url, headers)
+        series_data["tags"] = list(set(series_data.get("tags", [])) | {tag_id})
+        api_put(series_url, headers, series_data)
+        logger.info(f"Tagged series for episode '{upgrade_candidates[ep_id]['title']}' with '{UPGRADE_TAG}'")
+
+    api_post(f"{base_url}{API_PATH}command", headers, {"name": "EpisodeSearch", "episodeIds": selected_ids})
+    logger.info("Triggered Sonarr search command.")
+
+
+# ----------------------
+# Main
+# ----------------------
+if __name__ == "__main__":
+    run_radarr_upgrade()
+    run_sonarr_upgrade()
