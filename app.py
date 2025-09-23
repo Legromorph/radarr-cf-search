@@ -9,17 +9,24 @@ from requests import Response
 from dotenv import load_dotenv
 
 
+
+load_dotenv(dotenv_path="/config/.env")
+
+
 # ----------------------
 # Logger
 # ----------------------
 LOG_FILE = "/config/output.log"
+LOG_LEVEL = get_env_str("LOG_LEVEL", "INFO").upper()
+
+logging.Formatter.converter = time.localtime
 
 logging.basicConfig(
     filename=LOG_FILE,
     encoding="utf-8",
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
-    level=logging.INFO,
+    level=getattr(logging, LOG_LEVEL, logging.INFO)
 )
 logger = logging.getLogger(__name__)
 
@@ -27,7 +34,6 @@ logger = logging.getLogger(__name__)
 # ----------------------
 # Load environment variables
 # ----------------------
-load_dotenv(dotenv_path="/config/.env")
 
 API_PATH = "/api/v3/"
 UPGRADE_TAG = os.getenv("UPGRADE_TAG", "upgrade-cf")
@@ -43,6 +49,11 @@ def get_env_int(key: str, default: int = 0) -> int:
     """Safely read an integer from environment variables."""
     val = os.getenv(key)
     return int(val) if val and val.isdigit() else default
+
+def get_env_str(key: str, default: str = "") -> str:
+    """Safely read a string from environment variables."""
+    val = os.getenv(key)
+    return val.strip() if val else default
 
 
 # ----------------------
