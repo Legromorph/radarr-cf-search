@@ -3,7 +3,7 @@ import os
 import random
 import logging
 import time
-from typing import Dict, List, Any
+from typing import Dict, Any
 
 import requests
 from requests import Response
@@ -37,7 +37,7 @@ def get_env_str(key: str, default: str = "") -> str:
 # ----------------------
 # Logger
 # ----------------------
-LOG_FILE = "/config/output.log"
+LOG_FILE = f"/config/output_{time.strftime('%Y-%m-%d')}.log"
 LOG_LEVEL = get_env_str("LOG_LEVEL", "INFO").upper()
 
 logging.Formatter.converter = time.localtime
@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 # ----------------------
 
 API_PATH = "/api/v3/"
-UPGRADE_TAG = os.getenv("UPGRADE_TAG", "upgrade-cf")
+UPGRADE_TAG = get_env_str("UPGRADE_TAG", "upgrade-cf").upper()
 
 
 # ----------------------
@@ -130,10 +130,13 @@ def run_radarr_upgrade():
                 "currentScore": file_data["customFormatScore"],
                 "requiredScore": quality_scores[profile_id],
             }
+        
+    logger.info(f"Count of movies to upgrade: {len(upgrade_candidates)}")
 
     if not upgrade_candidates:
         logger.info("No Radarr movies found for upgrade.")
         return
+
 
     selected_ids = random.sample(list(upgrade_candidates.keys()), k=min(num_to_upgrade, len(upgrade_candidates)))
     logger.info(f"Selected movies for upgrade: {selected_ids}")
@@ -190,6 +193,7 @@ def run_sonarr_upgrade():
                     "currentScore": ep["customFormatScore"],
                     "requiredScore": quality_scores[profile_id],
                 }
+    logger.info(f"Count of episodes to upgrade: {len(upgrade_candidates)}")
 
     if not upgrade_candidates:
         logger.info("No Sonarr episodes found for upgrade.")
