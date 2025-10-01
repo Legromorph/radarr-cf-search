@@ -2,15 +2,36 @@ from __future__ import annotations
 import os
 import random
 import logging
+import time
 from typing import Dict, List, Any
 
 import requests
 from requests import Response
 from dotenv import load_dotenv
 
-
-
 load_dotenv(dotenv_path="/config/.env")
+
+
+# ----------------------
+# Environment helpers
+# ----------------------
+
+def get_env_bool(key: str, default: bool = False) -> bool:
+    """Safely read a boolean from environment variables."""
+    val = os.getenv(key)
+    return val.lower() == "true" if val else default
+
+
+def get_env_int(key: str, default: int = 0) -> int:
+    """Safely read an integer from environment variables."""
+    val = os.getenv(key)
+    return int(val) if val and val.isdigit() else default
+
+
+def get_env_str(key: str, default: str = "") -> str:
+    """Safely read a string from environment variables."""
+    val = os.getenv(key)
+    return val.strip() if val else default
 
 
 # ----------------------
@@ -37,23 +58,6 @@ logger = logging.getLogger(__name__)
 
 API_PATH = "/api/v3/"
 UPGRADE_TAG = os.getenv("UPGRADE_TAG", "upgrade-cf")
-
-
-def get_env_bool(key: str, default: bool = False) -> bool:
-    """Safely read a boolean from environment variables."""
-    val = os.getenv(key)
-    return val.lower() == "true" if val else default
-
-
-def get_env_int(key: str, default: int = 0) -> int:
-    """Safely read an integer from environment variables."""
-    val = os.getenv(key)
-    return int(val) if val and val.isdigit() else default
-
-def get_env_str(key: str, default: str = "") -> str:
-    """Safely read a string from environment variables."""
-    val = os.getenv(key)
-    return val.strip() if val else default
 
 
 # ----------------------
