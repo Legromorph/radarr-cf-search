@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 # ----------------------
 
 API_PATH = "/api/v3/"
-UPGRADE_TAG = get_env_str("UPGRADE_TAG", "upgrade-cf").upper()
+UPGRADE_TAG = get_env_str("UPGRADE_TAG", "upgrade-cf")
 
 
 # ----------------------
