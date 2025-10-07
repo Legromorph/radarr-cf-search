@@ -3,7 +3,7 @@ import os
 import random
 import logging
 import time
-from typing import Dict, List, Any
+from typing import Dict, Any
 
 import requests
 from requests import Response
@@ -37,7 +37,7 @@ def get_env_str(key: str, default: str = "") -> str:
 # ----------------------
 # Logger
 # ----------------------
-LOG_FILE = "/config/output.log"
+LOG_FILE = f"/config/output_{time.strftime('%Y-%m-%d')}.log"
 LOG_LEVEL = get_env_str("LOG_LEVEL", "INFO").upper()
 
 logging.Formatter.converter = time.localtime
@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 # ----------------------
 
 API_PATH = "/api/v3/"
-UPGRADE_TAG = os.getenv("UPGRADE_TAG", "upgrade-cf")
+UPGRADE_TAG = get_env_str("UPGRADE_TAG", "upgrade-cf")
 
 
 # ----------------------
@@ -115,10 +115,18 @@ def run_radarr_upgrade():
     quality_scores = {q["id"]: q["cutoffFormatScore"] for q in quality_profiles}
 
     movies = api_get(f"{base_url}{API_PATH}movie", headers)
+    tag_id = ensure_tag_exists(base_url, headers, UPGRADE_TAG)
+
     upgrade_candidates: Dict[int, Dict[str, Any]] = {}
+    tagged_movies = 0
 
     for movie in movies:
         if not movie.get("monitored") or not movie.get("movieFileId"):
+            continue
+
+        tags = movie.get("tags", [])
+        if tag_id in tags:
+            tagged_movies += 1
             continue
 
         file_data = api_get(f"{base_url}{API_PATH}moviefile/{movie['movieFileId']}", headers)
@@ -131,14 +139,24 @@ def run_radarr_upgrade():
                 "requiredScore": quality_scores[profile_id],
             }
 
+    logger.info(f"Count of movies to upgrade (excluding tagged): {len(upgrade_candidates)}")
+    logger.info(f"Already tagged movies: {tagged_movies} / {len(movies)}")
+
+    if tagged_movies == len(movies):
+        logger.info("All movies already have the upgrade tag — removing tags to restart the cycle.")
+        for movie in movies:
+            movie_url = f"{base_url}{API_PATH}movie/{movie['id']}"
+            movie["tags"] = [t for t in movie.get("tags", []) if t != tag_id]
+            api_put(movie_url, headers, movie)
+        logger.info("All upgrade tags removed from all movies.")
+        return
+
     if not upgrade_candidates:
         logger.info("No Radarr movies found for upgrade.")
         return
 
     selected_ids = random.sample(list(upgrade_candidates.keys()), k=min(num_to_upgrade, len(upgrade_candidates)))
     logger.info(f"Selected movies for upgrade: {selected_ids}")
-
-    tag_id = ensure_tag_exists(base_url, headers, UPGRADE_TAG)
 
     for movie_id in selected_ids:
         movie_url = f"{base_url}{API_PATH}movie/{movie_id}"
@@ -190,6 +208,7 @@ def run_sonarr_upgrade():
                     "currentScore": ep["customFormatScore"],
                     "requiredScore": quality_scores[profile_id],
                 }
+    logger.info(f"Count of episodes to upgrade: {len(upgrade_candidates)}")
 
     if not upgrade_candidates:
         logger.info("No Sonarr episodes found for upgrade.")
