@@ -69,7 +69,8 @@ Example log output:
 
 ```2025-10-07 14:23:12 [INFO] Starting Radarr upgrade process
 2025-10-07 14:23:12 [INFO] Tagged movie 'Inception' with 'upgrade-cf'
-2025-10-07 14:23:12 [INFO] Triggered Radarr search command.```
+2025-10-07 14:23:12 [INFO] Triggered Radarr search command.
+```
 
 
 You can adjust the log level via the `LOG_LEVEL` environment variable (e.g. `DEBUG`, `INFO`, `WARNING`).
