@@ -47,7 +47,8 @@ NUM_MOVIES_TO_UPGRADE=2
 PROCESS_SONARR=true
 SONARR_URL=http://localhost:8989
 SONARR_API_KEY=your_sonarr_api_key
-NUM_EPISODES_TO_UPGRADE=3```
+NUM_EPISODES_TO_UPGRADE=3
+```
 
 ## 🧩 Process Overview
 
