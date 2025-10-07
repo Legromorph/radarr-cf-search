@@ -1,4 +1,4 @@
-# 🎬 Radarr & Sonarr Auto-Upgrader
+# 🎬 Polishrr
 
 This Python script automatically identifies and upgrades movies and TV episodes in **Radarr** and **Sonarr** based on their **Custom Format Scores**.  
 
@@ -110,4 +110,5 @@ PROCESS_SONARR=false
 📄 License
 
 This project is released under the MIT License.
+
 You are free to use, modify, and share it.
