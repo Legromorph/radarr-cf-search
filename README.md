@@ -9,18 +9,18 @@ It helps you keep your media library at the highest possible quality — without
 ## 🚀 How It Works
 
 ### 🔹 Radarr
-- The script fetches all movies from your Radarr library.  
-- For each movie, it checks:
-  - Is the movie **monitored**?  
-  - Does it have an existing **file**?  
-  - Is its **custom format score** below the required `cutoffFormatScore`?  
-- If so, the movie is marked for upgrade and a **search command** is triggered in Radarr.  
-- Movies that already have the **upgrade tag** (default: `upgrade-cf`) are **skipped**.  
-- Once **all movies** are tagged, the script removes the tag from every movie — restarting the upgrade cycle.
+  - The script fetches all movies from your Radarr library.  
+  - For each movie, it checks:
+    - Is the movie **monitored**?  
+    - Does it have an existing **file**?  
+    - Is its **custom format score** below the required `cutoffFormatScore`?  
+  - If so, the movie is marked for upgrade and a **search command** is triggered in Radarr.  
+  - Movies that already have the **upgrade tag** (default: `upgrade-cf`) are **skipped**.  
+  - Once **all movies** are tagged, the script removes the tag from every movie — restarting the upgrade cycle.
 
 ### 🔹 Sonarr
-- Works similarly to Radarr, but on the **episode** level:  
-  - Episodes with a lower quality score than required are tagged and queued for search.  
+  - Works similarly to Radarr, but on the **episode** level:  
+    - Episodes with a lower quality score than required are tagged and queued for search.  
 
 ---
 
@@ -143,5 +143,6 @@ PROCESS_SONARR=false
 This project is released under the MIT License.
 
 You are free to use, modify, and share it.
+
 
 
