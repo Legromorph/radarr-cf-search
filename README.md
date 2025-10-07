@@ -67,7 +67,8 @@ NUM_EPISODES_TO_UPGRADE=3
 All events are logged to `/config/output_YYYY-MM-DD.log`.  
 Example log output:
 
-```2025-10-07 14:23:12 [INFO] Starting Radarr upgrade process
+```
+2025-10-07 14:23:12 [INFO] Starting Radarr upgrade process
 2025-10-07 14:23:12 [INFO] Tagged movie 'Inception' with 'upgrade-cf'
 2025-10-07 14:23:12 [INFO] Triggered Radarr search command.
 ```
@@ -88,8 +89,40 @@ It will allow you to:
 
 ---
 
+## 🐳 Docker installation
+
+You can run **Polishrr** using Docker with the following configuration:
+
+```yaml
+services:
+  polishrr:
+    image: ghcr.io/legromorph/polishrr:latest
+    container_name: polishrr
+    environment:
+      - CRON_SCHEDULE=0 * * * *   # default: run at every full hour
+      - TZ=America/Los_Angeles    # set your desired timezone
+    volumes:
+      - /path/to/config:/config   # place your .env file here
+```
+
 ## ▶️ Run the Script
 
+# Automatic Run
+
+The script runs automatically based on the **CRON_SCHEDULE** environment variable.
+
+Default: 0 * * * * → runs every full hour
+
+You can customize this value to any valid cron expression.
+
+# Manual Run
+
+If you want to run the script manually inside the container:
+```bash
+docker exec -it polishrr python app.py
+```
+
+Or, if running locally:
 ```bash
 python app.py
 ```
@@ -112,3 +145,4 @@ PROCESS_SONARR=false
 This project is released under the MIT License.
 
 You are free to use, modify, and share it.
+
