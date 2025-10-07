@@ -76,17 +76,6 @@ You can adjust the log level via the `LOG_LEVEL` environment variable (e.g. `DEB
 
 ---
 
-## 🖥️ Planned Feature: Web Interface
-
-A **web interface** is planned to make the tool more user-friendly.  
-It will allow you to:
-
-- View real-time upgrade status  
-- Start or pause processes manually  
-- Browse logs and quality statistics  
-
----
-
 ## 🐳 Docker installation
 
 You can run **Polishrr** using Docker with the following configuration:
@@ -138,11 +127,23 @@ PROCESS_SONARR=false
 ```
 
 ---
+
+## 🖥️ Planned Feature: Web Interface
+
+A **web interface** is planned to make the tool more user-friendly.  
+It will allow you to:
+
+- View real-time upgrade status  
+- Start or pause processes manually  
+- Browse logs and quality statistics
+  
+---
 📄 License
 
 This project is released under the MIT License.
 
 You are free to use, modify, and share it.
+
 
 
 
