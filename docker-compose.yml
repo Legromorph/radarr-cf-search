@@ -1,10 +1,10 @@
 ---
 services:
-  radarr-cf-search:
-    image: ghcr.io/thehesster/radarr-cf-search:latest
-    container_name: radarr-cf-search
+  polishrr:
+    image: ghcr.io/legromorph/polishrr:latest
+    container_name: polishrr
     environment:
-      - CRON_SCHEDULE=* * * * *
+      - CRON_SCHEDULE=0 * * * *
       - TZ=America/Los_Angeles
     volumes:
       - /path/to/config:/config # place your .env file in here
