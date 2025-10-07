@@ -21,8 +21,6 @@ It helps you keep your media library at the highest possible quality — without
 ### 🔹 Sonarr
 - Works similarly to Radarr, but on the **episode** level:  
   - Episodes with a lower quality score than required are tagged and queued for search.  
-  - Series already tagged are skipped.  
-  - When all series are tagged, all tags are cleared to restart the process.
 
 ---
 
@@ -145,4 +143,5 @@ PROCESS_SONARR=false
 This project is released under the MIT License.
 
 You are free to use, modify, and share it.
+
 
