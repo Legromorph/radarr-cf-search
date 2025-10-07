@@ -1,17 +1,15 @@
-PROCESS_RADARR=false
-PROCESS_SONARR=false
+# General settings
+LOG_LEVEL=INFO
+UPGRADE_TAG=upgrade-cf
 
-RADARR_API_KEY="your_api_key_here"
-SONARR_API_KEY="your_api_key_here"
+# Radarr
+PROCESS_RADARR=true
+RADARR_URL=http://localhost:7878
+RADARR_API_KEY=your_radarr_api_key
+NUM_MOVIES_TO_UPGRADE=2
 
-# no backslash following Radarr URL
-RADARR_URL="http://192.168.0.100:7878"
-# no backslash following Sonarr URL
-SONARR_URL="http://192.168.0.100:8989"
-
-NUM_MOVIES_TO_UPGRADE = 5
-NUM_EPISODES_TO_UPGRADE = 5
-
-UPGRADE_TAG=upgrade-tag
-
-LOGGER_LEVEL=INFO
+# Sonarr
+PROCESS_SONARR=true
+SONARR_URL=http://localhost:8989
+SONARR_API_KEY=your_sonarr_api_key
+NUM_EPISODES_TO_UPGRADE=3
