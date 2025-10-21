@@ -148,3 +148,35 @@ loadSummary();
 loadQueue();
 setInterval(loadSummary, 60000);
 setInterval(loadQueue, 15000);
+
+// ==============================
+//  Tabs & Dynamic Content
+// ==============================
+const tabs = document.querySelectorAll('.tab');
+const tabContents = document.querySelectorAll('.tab-content');
+
+tabs.forEach(tab => {
+  tab.addEventListener('click', () => {
+    tabs.forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    tabContents.forEach(c => c.classList.add('hidden'));
+    document.getElementById(`tab-${tab.dataset.tab}`).classList.remove('hidden');
+    loadTab(tab.dataset.tab);
+  });
+});
+
+async function loadTab(tab) {
+  let url;
+  if (tab === 'queue') url = '/api/download-queue?tagged=true';
+  else if (tab === 'recent') url = '/api/recent-upgrades';
+  else if (tab === 'eligible') url = '/api/eligible';
+  
+  const res = await fetch(url, { headers: { 'Authorization': `Bearer ${TOKEN}` } });
+  const data = await res.json();
+
+  const div = document.getElementById(`tab-${tab}`);
+  div.innerHTML = renderQueueTable(tab, data, ['Title', 'Status', 'Score', 'Indexer']);
+}
+
+// Initial tab load
+loadTab('queue');

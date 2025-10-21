@@ -18,8 +18,17 @@
     </section>
 
     <section class="queue-section">
-      <h2 class="section-title">📥 Download Queue</h2>
-      <div id="download-queue" class="queue-table">Loading...</div>
+      <h2 class="section-title">📥 Downloads & Upgrades</h2>
+
+      <div class="tabs">
+        <button class="tab active" data-tab="queue">🎬 Queue</button>
+        <button class="tab" data-tab="recent">🕒 Recently Tagged</button>
+        <button class="tab" data-tab="eligible">⚙️ Eligible</button>
+      </div>
+
+      <div class="tab-content" id="tab-queue">Loading queue...</div>
+      <div class="tab-content hidden" id="tab-recent">Loading recent upgrades...</div>
+      <div class="tab-content hidden" id="tab-eligible">Loading eligible items...</div>
     </section>
 
     <section class="log-section">

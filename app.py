@@ -3,7 +3,7 @@ import os
 import random
 import logging
 import time
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 import requests
 from requests import Response
@@ -58,7 +58,7 @@ logger = logging.getLogger(__name__)
 
 API_PATH = "/api/v3/"
 UPGRADE_TAG = get_env_str("UPGRADE_TAG", "upgrade-cf")
-
+RECENT_UPGRADES: Dict[str, List[dict]] = {"radarr": [], "sonarr": []}
 
 # ----------------------
 # Common API helpers
@@ -158,11 +158,17 @@ def run_radarr_upgrade():
     selected_ids = random.sample(list(upgrade_candidates.keys()), k=min(num_to_upgrade, len(upgrade_candidates)))
     logger.info(f"Selected movies for upgrade: {selected_ids}")
 
+    RECENT_UPGRADES["radarr"].clear()
+
     for movie_id in selected_ids:
         movie_url = f"{base_url}{API_PATH}movie/{movie_id}"
         movie_data = api_get(movie_url, headers)
         movie_data["tags"] = list(set(movie_data.get("tags", [])) | {tag_id})
         api_put(movie_url, headers, movie_data)
+        RECENT_UPGRADES["radarr"].append({
+            "id": movie_id,
+            "title": upgrade_candidates[movie_id]["title"],
+        })
         logger.info(f"Tagged movie '{upgrade_candidates[movie_id]['title']}' with '{UPGRADE_TAG}'")
 
     api_post(f"{base_url}{API_PATH}command", headers, {"name": "MoviesSearch", "movieIds": selected_ids})
@@ -179,6 +185,7 @@ def run_sonarr_upgrade():
 
     base_url = os.getenv("SONARR_URL", "")
     headers = {"Authorization": os.getenv("SONARR_API_KEY", "")}
+    tag_id = ensure_tag_exists(base_url, headers, UPGRADE_TAG)
     num_to_upgrade = get_env_int("NUM_EPISODES_TO_UPGRADE", 1)
 
     logger.info("Starting Sonarr upgrade process")
@@ -219,23 +226,32 @@ def run_sonarr_upgrade():
 
     tag_id = ensure_tag_exists(base_url, headers, UPGRADE_TAG)
 
+    RECENT_UPGRADES["sonarr"].clear()
+
     for ep_id in selected_ids:
         series_id = upgrade_candidates[ep_id]["seriesId"]
         series_url = f"{base_url}{API_PATH}series/{series_id}"
         series_data = api_get(series_url, headers)
         series_data["tags"] = list(set(series_data.get("tags", [])) | {tag_id})
         api_put(series_url, headers, series_data)
+
+        RECENT_UPGRADES["sonarr"].append({
+            "id": ep_id,
+            "title": upgrade_candidates[ep_id]["title"],
+            "seriesId": upgrade_candidates[ep_id]["seriesId"],
+        })
+
         logger.info(f"Tagged series for episode '{upgrade_candidates[ep_id]['title']}' with '{UPGRADE_TAG}'")
 
     api_post(f"{base_url}{API_PATH}command", headers, {"name": "EpisodeSearch", "episodeIds": selected_ids})
     logger.info("Triggered Sonarr search command.")
 
 
-def get_upgrade_status() -> dict:
+def get_upgrade_status(detailed: bool = False) -> dict:
     """Returns how many movies/episodes are below cutoff and how many are upgradeable."""
     status = {
-        "radarr": {"total_below_cutoff": 0, "eligible_for_upgrade": 0},
-        "sonarr": {"total_below_cutoff": 0, "eligible_for_upgrade": 0},
+        "radarr": {"total_below_cutoff": 0, "eligible_for_upgrade": 0, "items": []},
+        "sonarr": {"total_below_cutoff": 0, "eligible_for_upgrade": 0, "items": []},
     }
 
     logger.info("Collecting detailed upgrade statistics from Radarr and Sonarr...")
@@ -261,6 +277,13 @@ def get_upgrade_status() -> dict:
                     status["radarr"]["total_below_cutoff"] += 1
                     if tag_id not in movie.get("tags", []):
                         status["radarr"]["eligible_for_upgrade"] += 1
+                if detailed:
+                    status["radarr"]["items"].append({
+                        "title": movie["title"],
+                        "score": file_data["customFormatScore"],
+                        "cutoff": quality_scores[profile_id],
+                        "tagged": tag_id in movie.get("tags", []),
+                    })
 
             logger.info(f"Radarr: below_cutoff={status['radarr']['total_below_cutoff']} eligible={status['radarr']['eligible_for_upgrade']}")
         else:
@@ -291,6 +314,15 @@ def get_upgrade_status() -> dict:
                         if tag_id not in serie.get("tags", []):
                             status["sonarr"]["eligible_for_upgrade"] += 1
 
+                if detailed:
+                    status["sonarr"]["items"].append({
+                        "series": serie["title"],
+                        "episodeFileId": ep["id"],
+                        "score": ep["customFormatScore"],
+                        "cutoff": quality_scores[profile_id],
+                        "tagged": tag_id in serie.get("tags", []),
+                    })
+
             logger.info(f"Sonarr: below_cutoff={status['sonarr']['total_below_cutoff']} eligible={status['sonarr']['eligible_for_upgrade']}")
         else:
             logger.info("Sonarr disabled (PROCESS_SONARR=False)")
@@ -301,7 +333,7 @@ def get_upgrade_status() -> dict:
     logger.info(f"Final stats: {status}")
     return status
 
-def get_download_queue() -> dict:
+def get_download_queue(tagged_only: bool = False) -> dict:
     """Return current Radarr & Sonarr download queues with status info."""
     data = {"radarr": [], "sonarr": []}
 
@@ -327,7 +359,21 @@ def get_download_queue() -> dict:
             headers = {"Authorization": os.getenv("RADARR_API_KEY", "").strip('"')}
             queue_items = safe_api_get(f"{base_url}{API_PATH}queue", headers, "Radarr")
 
+            tag_id = ensure_tag_exists(base_url, headers, UPGRADE_TAG)
+
             for item in queue_items:
+                if tagged_only:
+                    tags = []
+                    if isinstance(item.get("movie"), dict):
+                        tags = item["movie"].get("tags", [])
+                    elif item.get("movieId"):
+                        try:
+                            mv = api_get(f"{base_url}{API_PATH}movie/{item['movieId']}", headers)
+                            tags = mv.get("tags", [])
+                        except Exception:
+                            tags = []
+                    if tag_id not in tags:
+                        continue
                 if not isinstance(item, dict):
                     continue
                 data["radarr"].append({
@@ -345,33 +391,80 @@ def get_download_queue() -> dict:
         logger.exception("Radarr queue fetch failed unexpectedly:")
         data["radarr_error"] = str(e)
 
-    # --- SONARR ---
+# --- SONARR ---
     try:
         if get_env_bool("PROCESS_SONARR"):
             base_url = os.getenv("SONARR_URL", "").strip().strip('"')
             headers = {"Authorization": os.getenv("SONARR_API_KEY", "").strip('"')}
-            queue_items = safe_api_get(f"{base_url}{API_PATH}queue", headers, "Sonarr")
+            tag_id = ensure_tag_exists(base_url, headers, UPGRADE_TAG)
+            res = api_get(f"{base_url}{API_PATH}queue", headers)
+
+            # Fallback falls neue Sonarr API (records[])
+            if isinstance(res, dict) and "records" in res:
+                queue_items = res["records"]
+            elif isinstance(res, list):
+                queue_items = res
+            else:
+                logger.warning(f"Unexpected Sonarr queue type: {type(res)} - {res}")
+                queue_items = []
+
+            # Cache für Seriennamen (damit wir nicht 10x die gleiche Serie nachladen)
+            series_cache = {}
 
             for item in queue_items:
                 if not isinstance(item, dict):
                     continue
+
+                series_id = item.get("seriesId")
+                if not series_id:
+                    continue
+
+                # Hole vollständige Serieninfo aus Cache oder API
+                if series_id not in series_cache:
+                    try:
+                        sdata = api_get(f"{base_url}{API_PATH}series/{series_id}", headers)
+                        series_cache[series_id] = sdata
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch Sonarr series {series_id}: {e}")
+                        series_cache[series_id] = {"title": f"Series {series_id}", "tags": []}
+
+                serie = series_cache[series_id]
+                series_title = serie.get("title", "-")
+
+                # Staffel + Episode formatieren
+                snum = item.get("seasonNumber", "?")
+                ep_obj = item.get("episode") if isinstance(item.get("episode"), dict) else {}
+                epnum = ep_obj.get("episodeNumber")
+                try:
+                    ep_label = f"S{int(snum):02d}E{int(epnum):02d}" if isinstance(epnum, int) else f"S{int(snum):02d}"
+                except Exception:
+                    ep_label = f"S{snum}E{epnum}" if epnum else f"S{snum}"
+
+                if tagged_only and tag_id not in (serie.get("tags", []) if isinstance(serie, dict) else []):
+                    continue
+
+                # Formatierte Queue-Daten speichern
                 data["sonarr"].append({
-                    "series": item.get("series", {}).get("title"),
-                    "episode": f"S{item.get('episode', {}).get('seasonNumber', '?')}E{item.get('episode', {}).get('episodeNumber', '?')}",
-                    "status": item.get("status"),
-                    "protocol": item.get("protocol"),
+                    "series": series_title,
+                    "episode": ep_label,
+                    "status": item.get("status", "-"),
+                    "protocol": item.get("protocol", "-"),
                     "size": round(item.get("size", 0) / (1024 ** 3), 2),
                     "sizeleft": round(item.get("sizeleft", 0) / (1024 ** 3), 2),
-                    "timeleft": item.get("timeleft"),
-                    "errorMessage": item.get("errorMessage"),
-                    "indexer": item.get("indexer"),
-                    "downloadId": item.get("downloadId")
+                    "timeleft": item.get("timeleft", "-"),
+                    "indexer": item.get("indexer", "-"),
+                    "downloadId": item.get("downloadId"),
                 })
+            logger.info(f"Fetched {len(data['sonarr'])} Sonarr queue items")
     except Exception as e:
         logger.exception("Sonarr queue fetch failed unexpectedly:")
         data["sonarr_error"] = str(e)
 
     return data
+
+def get_recent_upgrades() -> dict:
+    """Return items that were tagged by the last runs."""
+    return RECENT_UPGRADES
 
 # ----------------------
 # Main

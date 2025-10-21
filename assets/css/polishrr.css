@@ -145,3 +145,32 @@ th {
   color: #f44336;
   font-weight: 600;
 }
+
+.tabs {
+  display: flex;
+  gap: 0.5em;
+  margin-bottom: 1em;
+}
+
+.tab {
+  background: var(--bg-card);
+  color: var(--text-color);
+  border: 1px solid #333;
+  border-radius: var(--radius) var(--radius) 0 0;
+  padding: 0.6em 1.2em;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+.tab.active {
+  background: var(--accent);
+  color: #000;
+  font-weight: 600;
+}
+.tab-content {
+  background: var(--bg-card);
+  border-radius: 0 var(--radius) var(--radius) var(--radius);
+  padding: 1em;
+  max-height: 400px;
+  overflow-y: auto;
+}
+.hidden { display: none; }
