@@ -2,11 +2,12 @@
 import os, hmac, hashlib, asyncio, ipaddress, datetime as dt
 from typing import Optional, AsyncGenerator
 from fastapi import FastAPI, BackgroundTasks, Request, HTTPException, Depends
-from fastapi.responses import PlainTextResponse, StreamingResponse, JSONResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 # Importiere deine bestehenden Upgrade-Funktionen aus app.py:
-from app import run_radarr_upgrade, run_sonarr_upgrade  # ggf. anpassen
+from app import run_radarr_upgrade, run_sonarr_upgrade, get_upgrade_status
 
 app = FastAPI(title="Polishrr Web Service", version="1.0")
 
@@ -78,6 +79,10 @@ async def healthz():
 async def status(_: None = Depends(_auth)):
     return LAST_STATUS
 
+@app.get("/api/upgrade-summary")
+async def upgrade_summary(_: None = Depends(_auth)):
+    return get_upgrade_status()
+
 @app.post("/api/trigger")
 async def trigger(body: TriggerBody, background: BackgroundTasks, request: Request, _: None = Depends(_auth)):
     if RUN_LOCK.locked():
@@ -91,12 +96,28 @@ async def trigger(body: TriggerBody, background: BackgroundTasks, request: Reque
     return {"accepted": True}
 
 @app.get("/api/events")
-async def events(_: None = Depends(_auth)) -> StreamingResponse:
+async def events() -> StreamingResponse:
     async def gen() -> AsyncGenerator[bytes, None]:
-        # initial comment to keep connection open
         yield b": stream start\n\n"
         while True:
             msg = await EVENT_QUEUE.get()
             yield msg.encode("utf-8")
     headers = {"Cache-Control": "no-cache", "Connection": "keep-alive"}
     return StreamingResponse(gen(), media_type="text/event-stream", headers=headers)
+
+@app.get("/api/download-queue")
+async def download_queue(_: None = Depends(_auth)):
+    from app import get_download_queue
+    return get_download_queue()
+
+# Static mount
+app.mount("/static", StaticFiles(directory="/app/static"), name="static")
+app.mount("/assets", StaticFiles(directory="/app/assets"), name="assets")
+
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    try:
+        with open("/app/static/status.html", "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return "<h1>Polishrr</h1><p>No static page found.</p>"

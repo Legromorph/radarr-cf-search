@@ -37,7 +37,7 @@ def get_env_str(key: str, default: str = "") -> str:
 # ----------------------
 # Logger
 # ----------------------
-LOG_FILE = f"/config/output_{time.strftime('%Y-%m-%d')}.log"
+LOG_FILE = f"/app/runtime/output_{time.strftime('%Y-%m-%d')}.log"
 LOG_LEVEL = get_env_str("LOG_LEVEL", "INFO").upper()
 
 logging.Formatter.converter = time.localtime
@@ -230,6 +230,148 @@ def run_sonarr_upgrade():
     api_post(f"{base_url}{API_PATH}command", headers, {"name": "EpisodeSearch", "episodeIds": selected_ids})
     logger.info("Triggered Sonarr search command.")
 
+
+def get_upgrade_status() -> dict:
+    """Returns how many movies/episodes are below cutoff and how many are upgradeable."""
+    status = {
+        "radarr": {"total_below_cutoff": 0, "eligible_for_upgrade": 0},
+        "sonarr": {"total_below_cutoff": 0, "eligible_for_upgrade": 0},
+    }
+
+    logger.info("Collecting detailed upgrade statistics from Radarr and Sonarr...")
+
+    try:
+        if get_env_bool("PROCESS_RADARR"):
+            base_url = os.getenv("RADARR_URL", "")
+            headers = {"Authorization": os.getenv("RADARR_API_KEY", "")}
+            tag_id = ensure_tag_exists(base_url, headers, UPGRADE_TAG)
+
+            quality_profiles = api_get(f"{base_url}{API_PATH}qualityprofile", headers)
+            quality_scores = {q["id"]: q["cutoffFormatScore"] for q in quality_profiles}
+            movies = api_get(f"{base_url}{API_PATH}movie", headers)
+
+            for movie in movies:
+                if not movie.get("monitored") or not movie.get("movieFileId"):
+                    continue
+
+                file_data = api_get(f"{base_url}{API_PATH}moviefile/{movie['movieFileId']}", headers)
+                profile_id = movie["qualityProfileId"]
+
+                if file_data["customFormatScore"] < quality_scores[profile_id]:
+                    status["radarr"]["total_below_cutoff"] += 1
+                    if tag_id not in movie.get("tags", []):
+                        status["radarr"]["eligible_for_upgrade"] += 1
+
+            logger.info(f"Radarr: below_cutoff={status['radarr']['total_below_cutoff']} eligible={status['radarr']['eligible_for_upgrade']}")
+        else:
+            logger.info("Radarr disabled (PROCESS_RADARR=False)")
+    except Exception as e:
+        logger.error(f"Error fetching Radarr stats: {e}")
+        status["radarr_error"] = str(e)
+
+    try:
+        if get_env_bool("PROCESS_SONARR"):
+            base_url = os.getenv("SONARR_URL", "")
+            headers = {"Authorization": os.getenv("SONARR_API_KEY", "")}
+            tag_id = ensure_tag_exists(base_url, headers, UPGRADE_TAG)
+
+            quality_profiles = api_get(f"{base_url}{API_PATH}qualityprofile", headers)
+            quality_scores = {q["id"]: q["cutoffFormatScore"] for q in quality_profiles}
+            series_list = api_get(f"{base_url}{API_PATH}series", headers)
+
+            for serie in series_list:
+                profile_id = serie["qualityProfileId"]
+                if serie["statistics"]["episodeFileCount"] == 0:
+                    continue
+                episodes = api_get(f"{base_url}{API_PATH}episodefile?seriesId={serie['id']}", headers)
+
+                for ep in episodes:
+                    if ep["customFormatScore"] < quality_scores[profile_id]:
+                        status["sonarr"]["total_below_cutoff"] += 1
+                        if tag_id not in serie.get("tags", []):
+                            status["sonarr"]["eligible_for_upgrade"] += 1
+
+            logger.info(f"Sonarr: below_cutoff={status['sonarr']['total_below_cutoff']} eligible={status['sonarr']['eligible_for_upgrade']}")
+        else:
+            logger.info("Sonarr disabled (PROCESS_SONARR=False)")
+    except Exception as e:
+        logger.error(f"Error fetching Sonarr stats: {e}")
+        status["sonarr_error"] = str(e)
+
+    logger.info(f"Final stats: {status}")
+    return status
+
+def get_download_queue() -> dict:
+    """Return current Radarr & Sonarr download queues with status info."""
+    data = {"radarr": [], "sonarr": []}
+
+    def safe_api_get(url: str, headers: dict, label: str):
+        """Wrap api_get with better error context."""
+        try:
+            res = api_get(url, headers)
+            if isinstance(res, dict) and "records" in res:
+                # Radarr 5.x sometimes wraps queue inside "records"
+                return res["records"]
+            if isinstance(res, list):
+                return res
+            logger.warning(f"{label} queue returned unexpected type: {type(res)} - {res}")
+            return []
+        except Exception as e:
+            logger.error(f"Failed fetching {label} queue: {e}")
+            return []
+
+    # --- RADARR ---
+    try:
+        if get_env_bool("PROCESS_RADARR"):
+            base_url = os.getenv("RADARR_URL", "").strip().strip('"')
+            headers = {"Authorization": os.getenv("RADARR_API_KEY", "").strip('"')}
+            queue_items = safe_api_get(f"{base_url}{API_PATH}queue", headers, "Radarr")
+
+            for item in queue_items:
+                if not isinstance(item, dict):
+                    continue
+                data["radarr"].append({
+                    "title": item.get("title"),
+                    "status": item.get("status"),
+                    "protocol": item.get("protocol"),
+                    "size": round(item.get("size", 0) / (1024 ** 3), 2),
+                    "sizeleft": round(item.get("sizeleft", 0) / (1024 ** 3), 2),
+                    "timeleft": item.get("timeleft"),
+                    "errorMessage": item.get("errorMessage"),
+                    "indexer": item.get("indexer"),
+                    "downloadId": item.get("downloadId")
+                })
+    except Exception as e:
+        logger.exception("Radarr queue fetch failed unexpectedly:")
+        data["radarr_error"] = str(e)
+
+    # --- SONARR ---
+    try:
+        if get_env_bool("PROCESS_SONARR"):
+            base_url = os.getenv("SONARR_URL", "").strip().strip('"')
+            headers = {"Authorization": os.getenv("SONARR_API_KEY", "").strip('"')}
+            queue_items = safe_api_get(f"{base_url}{API_PATH}queue", headers, "Sonarr")
+
+            for item in queue_items:
+                if not isinstance(item, dict):
+                    continue
+                data["sonarr"].append({
+                    "series": item.get("series", {}).get("title"),
+                    "episode": f"S{item.get('episode', {}).get('seasonNumber', '?')}E{item.get('episode', {}).get('episodeNumber', '?')}",
+                    "status": item.get("status"),
+                    "protocol": item.get("protocol"),
+                    "size": round(item.get("size", 0) / (1024 ** 3), 2),
+                    "sizeleft": round(item.get("sizeleft", 0) / (1024 ** 3), 2),
+                    "timeleft": item.get("timeleft"),
+                    "errorMessage": item.get("errorMessage"),
+                    "indexer": item.get("indexer"),
+                    "downloadId": item.get("downloadId")
+                })
+    except Exception as e:
+        logger.exception("Sonarr queue fetch failed unexpectedly:")
+        data["sonarr_error"] = str(e)
+
+    return data
 
 # ----------------------
 # Main

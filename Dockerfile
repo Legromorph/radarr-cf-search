@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 FROM python:3.12-slim AS base
 
-# --- Security & system deps (nur was wirklich nötig ist)
+# --- Minimalpakete installieren
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl tzdata cron dumb-init \
     && rm -rf /var/lib/apt/lists/*
@@ -9,35 +9,40 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# --- App user
+# --- Non-root App-User
 ARG APP_USER=polishrr
-RUN useradd -m -u 10001 -s /usr/sbin/nologin ${APP_USER}
+RUN useradd -m -u 1000 -s /usr/sbin/nologin ${APP_USER}
+
+# --- Verzeichnisse vorbereiten
+RUN mkdir -p /config /app/runtime /var/run /run && \
+    chown -R 1000:1000 /config /app /var/run /run && \
+    chmod -R 777 /config /app/runtime  # Schreibrechte für Logfiles
 
 WORKDIR /app
 
-# --- Dependencies (no cache)
+# --- Dependencies installieren
 COPY requirements.txt /app/
 RUN python -m pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# --- App files
-COPY app.py /app/
-COPY web_service.py /app/
-COPY entrypoint.sh /app/
-COPY cronjob.template /app/
-COPY .example_env /app/.example_env
+# --- App-Dateien + Static Assets
+COPY app.py web_service.py entrypoint.sh cronjob.template .example_env /app/
+COPY static/ /app/static/
+COPY assets/ /app/assets/
 
-# --- FS hardening
-RUN mkdir -p /config /app/runtime && chown -R ${APP_USER}:${APP_USER} /config /app
-USER ${APP_USER}
+# --- Root-Aktionen: Cron + CRLF-Fix
+USER root
+RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh && \
+    cp /app/cronjob.template /etc/cron.d/my-cron-job && \
+    chmod 0644 /etc/cron.d/my-cron-job
 
-# --- Expose web port
+# --- Expose Web Port
 EXPOSE 8998
 
-# --- Healthcheck (nutzt healthz)
+# --- Healthcheck
 HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
   CMD curl -fsS http://127.0.0.1:8998/healthz || exit 1
 
-# --- Run: cron im Hintergrund, uvicorn im Vordergrund (PID 1 via dumb-init)
+# --- Start: Cron (root) + Webservice (als polishrr)
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 CMD ["/app/entrypoint.sh"]

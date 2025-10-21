@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <title>🎬 Polishrr Status</title>
+  <link rel="stylesheet" href="assets/css/polishrr.css">
+</head>
+<body>
+  <header class="app-header">
+    <h1 class="app-title">🎬 Polishrr Status</h1>
+    <button id="trigger-upgrade" class="btn btn-primary">Trigger (both)</button>
+  </header>
+
+  <main class="app-main">
+    <section class="status-section">
+      <h2 class="section-title">📊 Upgrade Status</h2>
+      <div id="upgrade-summary" class="status-summary">Loading upgrade info...</div>
+    </section>
+
+    <section class="queue-section">
+      <h2 class="section-title">📥 Download Queue</h2>
+      <div id="download-queue" class="queue-table">Loading...</div>
+    </section>
+
+    <section class="log-section">
+      <h2 class="section-title">🧾 Log</h2>
+      <pre id="log-output" class="log-output"></pre>
+    </section>
+
+  </main>
+
+  <footer class="app-footer">
+    <small>Polishrr Status Panel — Inspired by Radarr/Sonarr</small>
+  </footer>
+
+  <script src="assets/js/polishrr.js"></script>
+</body>
+</html>
