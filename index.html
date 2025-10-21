@@ -1,0 +1,18 @@
+<!-- static/status.html -->
+<!doctype html><meta charset="utf-8">
+<h1>Polishrr Status</h1>
+<button id="go">Trigger (both)</button>
+<pre id="log"></pre>
+<script>
+const log = document.getElementById('log');
+document.getElementById('go').onclick = async () => {
+  await fetch('/api/trigger', {method:'POST',
+    headers:{'Authorization':'Bearer TOKEN','Content-Type':'application/json'},
+    body: JSON.stringify({target:'both'})});
+};
+const es = new EventSource('/api/events', {withCredentials:false});
+es.onmessage = e => log.textContent += e.data + "\n";
+es.addEventListener('info', e => log.textContent += "[i] "+e.data+"\n");
+es.addEventListener('error', e => log.textContent += "[!] "+e.data+"\n");
+es.addEventListener('done', e => log.textContent += "[✓] "+e.data+"\n");
+</script>
