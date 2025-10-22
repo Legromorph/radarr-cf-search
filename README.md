@@ -128,24 +128,57 @@ PROCESS_SONARR=false
 
 ---
 
-## 🖥️ Planned Feature: Web Interface
+## 🌐 New: Polishrr Web Dashboard (v1.0)
 
-A **web interface** is planned to make the tool more user-friendly.  
-It will allow you to:
+Polishrr now includes a **modern, browser-based dashboard** for full visibility and control — no command line required.
 
-- View real-time upgrade status  
-- Start or pause processes manually  
-- Browse logs and quality statistics
-  
 ---
-📄 License
 
-This project is released under the MIT License.
+### ✨ Main Features
 
+#### 🧭 Overview
+- Displays current **upgrade summaries** for Radarr and Sonarr.  
+- Shows **below-cutoff** and **eligible items** in real time.
+
+#### ⚙️ Manual Control
+- Start upgrades manually for **Radarr**, **Sonarr**, or both.  
+- Trigger **single upgrades** or **force upgrades** directly from the interface.
+
+#### 🔄 Live Updates
+- Real-time logs via **Server-Sent Events (SSE)**.  
+- Instant feedback when upgrades start, finish, or fail.
+
+#### 📋 Download & Upgrade Queues
+- See all **active downloads**, **tagged**, and **eligible items**.  
+- Clean, sortable tables with **clickable column headers**:  
+  - Click on **Name** or **Status** to sort ascending or descending.  
+  - Sorting preferences are remembered automatically.
+
+#### ⚙️ Settings Management
+- Adjust cron schedules, enable/disable Radarr or Sonarr processing, and set limits directly in the UI.  
+- Save and test configuration changes instantly.
+
+#### 💅 Modern Design
+- Fully responsive HTML/CSS interface.  
+- Styled with a **minimal dark theme**.  
+- Built using **Vanilla JS + FastAPI backend** — fast, lightweight, and local.
+
+---
+
+### 🔒 Security
+- Access protected by a **Bearer token** (`POLISHRR_TOKEN` environment variable).  
+- Optional **IP allowlist** (`ALLOWED_IPS`) for restricted network access.  
+- Tokens are securely compared using constant-time checks.
+
+---
+
+### 📄 License
+This project is released under the **MIT License**.  
 You are free to use, modify, and share it.
 
+---
 
-
-
+### 🤖 About This Project
+This project’s code — including parts of the backend and web dashboard — was **mostly generated with AI assistance** and then **reviewed, analyzed, and refined by the author** for correctness, performance, and maintainability.
 
 
