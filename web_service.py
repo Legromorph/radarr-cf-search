@@ -105,9 +105,6 @@ async def events() -> StreamingResponse:
     headers = {"Cache-Control": "no-cache", "Connection": "keep-alive"}
     return StreamingResponse(gen(), media_type="text/event-stream", headers=headers)
 
-@app.get("/api/download-queue")
-async def download_queue(_: None = Depends(_auth)):
-    return get_download_queue()
 
 @app.get("/api/eligible")
 async def eligible(_: None = Depends(_auth)):

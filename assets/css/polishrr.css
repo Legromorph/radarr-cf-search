@@ -174,3 +174,7 @@ th {
   overflow-y: auto;
 }
 .hidden { display: none; }
+
+.queue-tab { display: none; }
+.queue-tab.active { display: block; }
+.tab-btn.active { filter: brightness(1.1); }

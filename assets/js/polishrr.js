@@ -45,27 +45,31 @@ async function loadSummary() {
 }
 
 // --- Load download queue ---
-async function loadQueue() {
+async function loadQueue(tab = "all") {
+  let url = "/api/download-queue";
+  if (tab === "tagged") url += "?tagged=true";
+  if (tab === "eligible") url += "?eligible=true";
+
+  const targetDiv = document.getElementById(`queue-${tab}`);
+  if (!targetDiv) return;
+
   try {
-    const res = await fetch('/api/download-queue', {
+    const res = await fetch(url, {
       headers: { 'Authorization': `Bearer ${TOKEN}` }
     });
     if (!res.ok) throw new Error(res.status + ' ' + res.statusText);
     const q = await res.json();
+
     let html = "";
-
-    if (q.radarr?.length) {
+    if (q.radarr?.length)
       html += renderQueueTable('🎞 Radarr', q.radarr, ['Title', 'Status', 'Left', 'Time', 'Indexer']);
-    }
-
-    if (q.sonarr?.length) {
+    if (q.sonarr?.length)
       html += renderQueueTable('📺 Sonarr', q.sonarr, ['Series', 'Ep', 'Status', 'Left', 'Time', 'Indexer']);
-    }
-
     if (!html) html = "✅ No active downloads.";
-    queueDiv.innerHTML = html;
+
+    targetDiv.innerHTML = html;
   } catch (err) {
-    queueDiv.textContent = `⚠️ Failed to load queue (${err.message})`;
+    targetDiv.textContent = `⚠️ Failed to load queue (${err.message})`;
   }
 }
 
@@ -152,31 +156,29 @@ setInterval(loadQueue, 15000);
 // ==============================
 //  Tabs & Dynamic Content
 // ==============================
-const tabs = document.querySelectorAll('.tab');
-const tabContents = document.querySelectorAll('.tab-content');
+const tabBtns = document.querySelectorAll('.tab-btn');
+const tabPanels = document.querySelectorAll('.queue-tab');
 
-tabs.forEach(tab => {
-  tab.addEventListener('click', () => {
-    tabs.forEach(t => t.classList.remove('active'));
-    tab.classList.add('active');
-    tabContents.forEach(c => c.classList.add('hidden'));
-    document.getElementById(`tab-${tab.dataset.tab}`).classList.remove('hidden');
-    loadTab(tab.dataset.tab);
-  });
-});
+function activateTab(targetId) {
+  // Buttons aktiv
+  tabBtns.forEach(b => b.classList.toggle('active', b.dataset.target === targetId));
+  // Panels anzeigen/verstecken
+  tabPanels.forEach(p => p.classList.toggle('active', p.id === targetId));
 
-async function loadTab(tab) {
-  let url;
-  if (tab === 'queue') url = '/api/download-queue?tagged=true';
-  else if (tab === 'recent') url = '/api/recent-upgrades';
-  else if (tab === 'eligible') url = '/api/eligible';
-  
-  const res = await fetch(url, { headers: { 'Authorization': `Bearer ${TOKEN}` } });
-  const data = await res.json();
-
-  const div = document.getElementById(`tab-${tab}`);
-  div.innerHTML = renderQueueTable(tab, data, ['Title', 'Status', 'Score', 'Indexer']);
+  // Daten für das aktive Panel laden
+  if (targetId === 'queue-all') {
+    loadQueue('all');
+  } else if (targetId === 'queue-tagged') {
+    loadQueue('tagged');
+  } else if (targetId === 'queue-eligible') {
+    loadQueue('eligible');
+  }
 }
 
-// Initial tab load
-loadTab('queue');
+// Klick-Handler
+tabBtns.forEach(btn => {
+  btn.addEventListener('click', () => activateTab(btn.dataset.target));
+});
+
+// Initial: "Alle"
+activateTab('queue-all');
