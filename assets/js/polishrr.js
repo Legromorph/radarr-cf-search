@@ -1,222 +1,357 @@
-// ==============================
-//  Polishrr Status Dashboard JS
-// ==============================
+// ========================================================
+//  Polishrr Dashboard (Refactored to modern best practices)
+// ========================================================
 
-// --- Element Refs ---
-const logOutput = document.getElementById('log-output');
-const summaryDiv = document.getElementById('upgrade-summary');
-const triggerBtn = document.getElementById('trigger-upgrade');
+(() => {
+  "use strict";
 
-// --- Token Setup ---
-let TOKEN = localStorage.getItem("POLISHRR_TOKEN");
-if (!TOKEN) {
-  TOKEN = prompt("Enter your POLISHRR_TOKEN:");
-  if (TOKEN) localStorage.setItem("POLISHRR_TOKEN", TOKEN);
-}
-if (!TOKEN) alert("⚠️ No token provided — API calls will fail until you refresh and enter one.");
+  // --- === Global State === ---
+  const state = {
+    token: null,
+    eventSource: null,
+    tabs: ["all", "tagged", "eligible"],
+    lastTab: "all",
+  };
 
-// --- Utility: Append log lines ---
-function logLine(prefix, text) {
-  logOutput.textContent += prefix + text + "\n";
-  logOutput.scrollTop = logOutput.scrollHeight;
-}
+  // --- === DOM References === ---
+  const els = {};
+  const qs = (sel) => document.querySelector(sel);
+  const qsa = (sel) => document.querySelectorAll(sel);
 
-// --- Load upgrade summary ---
-async function loadSummary() {
-  try {
-    const res = await fetch('/api/upgrade-summary', {
-      headers: { 'Authorization': `Bearer ${TOKEN}` }
-    });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-    const data = await res.json();
-    const radarr = data.radarr || {};
-    const sonarr = data.sonarr || {};
+  // --- === Utility: Logging === ---
+  const log = (level, msg) => {
+    if (!els.logOutput) return;
+    const prefixMap = {
+      info: "[i] ",
+      ok: "[✓] ",
+      warn: "[!] ",
+      start: "[*] ",
+    };
+    const prefix = prefixMap[level] ?? "[ ] ";
+    els.logOutput.textContent += prefix + msg + "\n";
+    els.logOutput.scrollTop = els.logOutput.scrollHeight;
+  };
 
-    summaryDiv.innerHTML = `
-      🎞 <b>Radarr</b>: below cutoff <b>${radarr.total_below_cutoff ?? '-'}</b>,
-      eligible <b>${radarr.eligible_for_upgrade ?? '-'}</b><br>
-      📺 <b>Sonarr</b>: below cutoff <b>${sonarr.total_below_cutoff ?? '-'}</b>,
-      eligible <b>${sonarr.eligible_for_upgrade ?? '-'}</b>
-    `;
-  } catch (err) {
-    summaryDiv.textContent = `⚠️ Failed to load summary (${err.message})`;
+  // --- === Utility: API Fetch with timeout === ---
+  async function apiFetch(path, options = {}, timeoutMs = 15000) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    const headers = {
+      "Authorization": `Bearer ${state.token}`,
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    };
+    try {
+      const res = await fetch(path, { ...options, headers, signal: ctrl.signal });
+      clearTimeout(t);
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`HTTP ${res.status}: ${txt}`);
+      }
+      const ctype = res.headers.get("content-type") || "";
+      if (ctype.includes("application/json")) return res.json();
+      return res.text();
+    } catch (err) {
+      clearTimeout(t);
+      log("warn", `API ${path} failed: ${err.message}`);
+      throw err;
+    }
   }
-}
 
-// --- Load download/eligible queues ---
-async function loadQueue(tab = "all") {
-  let url = "/api/download-queue";
-  if (tab === "tagged") url += "?tagged=true";
-  if (tab === "eligible") url += "?eligible=true";
+  // --- === Token Handling === ---
+  function initToken() {
+    let t = localStorage.getItem("POLISHRR_TOKEN");
+    if (!t) {
+      t = prompt("Enter your POLISHRR_TOKEN:");
+      if (t) localStorage.setItem("POLISHRR_TOKEN", t);
+    }
+    if (!t) {
+      alert("⚠️ No token provided — refresh and enter one to enable API calls.");
+    }
+    state.token = t;
+  }
 
-  const targetDiv = document.getElementById(`queue-${tab}`);
-  if (!targetDiv) return;
+  // --- === Load Upgrade Summary === ---
+  async function loadSummary() {
+    try {
+      const data = await apiFetch("/api/upgrade-summary");
+      const r = data.radarr || {};
+      const s = data.sonarr || {};
+      els.summary.innerHTML = `
+        🎞 <b>Radarr</b>: below cutoff <b>${r.total_below_cutoff ?? '-'}</b>,
+        eligible <b>${r.eligible_for_upgrade ?? '-'}</b><br>
+        📺 <b>Sonarr</b>: below cutoff <b>${s.total_below_cutoff ?? '-'}</b>,
+        eligible <b>${s.eligible_for_upgrade ?? '-'}</b>
+      `;
+    } catch (e) {
+      els.summary.textContent = `⚠️ Failed to load summary (${e.message})`;
+    }
+  }
 
-  try {
-    const res = await fetch(url, {
-      headers: { 'Authorization': `Bearer ${TOKEN}` }
-    });
-    if (!res.ok) throw new Error(res.status + ' ' + res.statusText);
-    const q = await res.json();
+  // --- === Queue Rendering === ---
+  function renderQueueTable(title, items, headers, isEligible = false) {
+    if (!Array.isArray(items) || !items.length) return "";
 
-    let html = "";
-    if (tab === "eligible") {
-      if (q.radarr?.length)
-        html += renderQueueTable('🎞 Radarr Eligible', q.radarr, ['Title', 'Status', 'Actions'], true);
-      if (q.sonarr?.length)
-        html += renderQueueTable('📺 Sonarr Eligible', q.sonarr, ['Series', 'Ep', 'Status', 'Actions'], true);
-      if (!html) html = "✅ No eligible items.";
-    } else {
-      if (q.radarr?.length)
-        html += renderQueueTable('🎞 Radarr', q.radarr, ['Title', 'Status', 'Left', 'Time', 'Indexer']);
-      if (q.sonarr?.length)
-        html += renderQueueTable('📺 Sonarr', q.sonarr, ['Series', 'Ep', 'Status', 'Left', 'Time', 'Indexer']);
-      if (!html) html = "✅ No active downloads.";
+    // Optional: Vorinitialisierung sortieren, z. B. alphabetisch
+    if (isEligible && state.lastSort) {
+      const { index, asc } = state.lastSort;
+      items.sort((a, b) => {
+        const v1 = Object.values(a)[index] ?? "";
+        const v2 = Object.values(b)[index] ?? "";
+        return asc ? String(v1).localeCompare(String(v2))
+                  : String(v2).localeCompare(String(v1));
+      });
     }
 
-    targetDiv.innerHTML = html;
-  } catch (err) {
-    targetDiv.textContent = `⚠️ Failed to load queue (${err.message})`;
-  }
-}
+    const rows = items.map((it) => {
+      const status = (it.status || "").toLowerCase();
+      const statusClass =
+        status.includes("fail") ? "status-failed" :
+        status.includes("download") ? "status-downloading" :
+        status.includes("complete") ? "status-completed" : "";
 
-// --- Render helper ---
-function renderQueueTable(title, items, headers, isEligible = false) {
-  let html = `
-    <div class="queue-table">
-      <h3>${title}</h3>
-      <div class="table-body-scroll">
-        <table>
-          <thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
-          <tbody>
-  `;
+      const cols = [];
+      if (isEligible) {
+        const id = it.id;
+        if (!id) return "";
+        const target = it.series ? "sonarr" : "radarr";
+        cols.push(it.title ?? it.series ?? "-");
+        cols.push(`<span class="${statusClass}">${it.status ?? "-"}</span>`);
+        cols.push(`
+          <button class="btn-mini upgrade-btn" data-id="${id}" data-target="${target}">Upgrade</button>
+          <button class="btn-mini force-btn" data-id="${id}" data-target="${target}">Force</button>
+        `);
+      } else if (title.includes("Radarr")) {
+        cols.push(it.title ?? "-");
+        cols.push(`<span class="${statusClass}">${it.status ?? "-"}</span>`);
+        cols.push(`${it.sizeleft?.toFixed?.(2) ?? "-"} GB`);
+        cols.push(it.timeleft ?? "-");
+        cols.push(it.indexer ?? "-");
+      } else {
+        cols.push(it.series ?? "-");
+        cols.push(it.episode ?? "-");
+        cols.push(`<span class="${statusClass}">${it.status ?? "-"}</span>`);
+        cols.push(`${it.sizeleft?.toFixed?.(2) ?? "-"} GB`);
+        cols.push(it.timeleft ?? "-");
+        cols.push(it.indexer ?? "-");
+      }
+      return `<tr>${cols.map(c => `<td>${c}</td>`).join("")}</tr>`;
+    }).join("");
 
-  for (const item of items) {
-    const status = item.status?.toLowerCase() || '';
-    const statusClass =
-      status.includes('fail') ? 'status-failed' :
-      status.includes('download') ? 'status-downloading' :
-      status.includes('complete') ? 'status-completed' : '';
+    // 🔥 Neu: data-key pro Spalte + Sortieranzeige
+    const ths = headers.map((h, i) => 
+      `<th data-index="${i}" class="sortable-header">${h} <span class="sort-icon"></span></th>`
+    ).join('');
 
-    const cols = [];
-
-    if (isEligible) {
-      const id = item.id || item.movieId || item.episodeId;
-      if (!id) continue; // überspringe Zeilen ohne ID
-      const target = item.series ? "sonarr" : "radarr";
-      cols.push(item.title ?? item.series ?? '-');
-      cols.push(`<span class="${statusClass}">${item.status ?? '-'}</span>`);
-      cols.push(`
-        <button class="btn-mini upgrade-btn" data-id="${id}" data-target="${target}">Upgrade</button>
-        <button class="btn-mini force-btn" data-id="${id}" data-target="${target}">Force</button>
-      `);
-    } else if (title.includes('Radarr')) {
-      cols.push(item.title ?? '-');
-      cols.push(`<span class="${statusClass}">${item.status ?? '-'}</span>`);
-      cols.push(`${item.sizeleft?.toFixed?.(2) ?? '-'} GB`);
-      cols.push(item.timeleft ?? '-');
-      cols.push(item.indexer ?? '-');
-    } else {
-      cols.push(item.series ?? '-');
-      cols.push(item.episode ?? '-');
-      cols.push(`<span class="${statusClass}">${item.status ?? '-'}</span>`);
-      cols.push(`${item.sizeleft?.toFixed?.(2) ?? '-'} GB`);
-      cols.push(item.timeleft ?? '-');
-      cols.push(item.indexer ?? '-');
-    }
-
-    html += '<tr>' + cols.map(c => `<td>${c}</td>`).join('') + '</tr>';
-  }
-
-  html += `
-          </tbody>
-        </table>
+    return `
+      <div class="queue-table">
+        <h3>${title}</h3>
+        <div class="table-body-scroll">
+          <table class="${isEligible ? "sortable" : ""}">
+            <thead><tr>${ths}</tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
       </div>
-    </div>
-  `;
-  return html;
-}
-
-// --- Trigger button ---
-triggerBtn.onclick = async () => {
-  logLine("[*] ", "Triggering upgrade...");
-  const res = await fetch('/api/trigger', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${TOKEN}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ target: 'both' })
-  });
-  if (!res.ok) logLine("[!] ", "Trigger failed: " + res.status);
-  else logLine("[✓] ", "Trigger accepted.");
-};
-
-// --- Live Event Stream ---
-const es = new EventSource('/api/events');
-es.addEventListener('info', e => logLine("[i] ", e.data));
-es.addEventListener('error', e => logLine("[!] ", e.data));
-es.addEventListener('done', e => {
-  logLine("[✓] ", e.data);
-  loadSummary();
-  loadQueue();
-});
-es.onerror = () => logLine("[!] ", "Event stream disconnected.");
-
-// --- Button Events (global einmalig!) ---
-document.addEventListener('click', async (e) => {
-  if (e.target.classList.contains('upgrade-btn')) {
-    const id = e.target.dataset.id;
-    const target = e.target.dataset.target;
-    logLine("[*] ", `Upgrading ${target} item ${id}...`);
-    const res = await fetch('/api/upgrade-item', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${TOKEN}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ id, target })
-    });
-    logLine(res.ok ? "[✓] " : "[!] ", res.ok ? "Upgrade started" : "Upgrade failed");
+    `;
   }
 
-  if (e.target.classList.contains('force-btn')) {
-    const id = e.target.dataset.id;
-    const target = e.target.dataset.target;
-    if (!confirm(`⚠️ Force upgrade will delete the existing file for ${target.toUpperCase()} item ${id}. Continue?`)) {
+  // === Sortier-Event für klickbare Tabellen ===
+function initTableSorting() {
+  document.addEventListener("click", (e) => {
+    const th = e.target.closest("th.sortable-header");
+    if (!th) return;
+    const table = th.closest("table.sortable");
+    if (!table) return;
+
+    const idx = parseInt(th.dataset.index, 10);
+    const asc = !th.classList.contains("asc");
+
+    // Alle Header-Icons resetten
+    table.querySelectorAll("th").forEach(h => h.classList.remove("asc", "desc"));
+    th.classList.add(asc ? "asc" : "desc");
+
+    const rows = Array.from(table.querySelectorAll("tbody tr"));
+    rows.sort((a, b) => {
+      const t1 = a.children[idx].innerText.toLowerCase();
+      const t2 = b.children[idx].innerText.toLowerCase();
+      return asc ? t1.localeCompare(t2) : t2.localeCompare(t1);
+    });
+
+    rows.forEach(r => table.querySelector("tbody").appendChild(r));
+    state.lastSort = { index: idx, asc }; // Speichern
+  });
+}
+
+
+  // --- === Load Queue Data === ---
+  async function loadQueue(tab = "all") {
+    const targetDiv = qs(`#queue-${tab}`);
+    if (!targetDiv) return;
+    try {
+      const query = tab === "tagged" ? "?tagged=true" :
+                    tab === "eligible" ? "?eligible=true" : "";
+      const q = await apiFetch(`/api/download-queue${query}`);
+
+      let html = "";
+      if (tab === "eligible") {
+        if (q.radarr?.length)
+          html += renderQueueTable("🎞 Radarr Eligible", q.radarr, ["Title", "Status", "Actions"], true);
+        if (q.sonarr?.length)
+          html += renderQueueTable("📺 Sonarr Eligible", q.sonarr, ["Series", "Ep", "Status", "Actions"], true);
+        if (!html) html = "✅ No eligible items.";
+      } else {
+        if (q.radarr?.length)
+          html += renderQueueTable("🎞 Radarr", q.radarr, ["Title", "Status", "Left", "Time", "Indexer"]);
+        if (q.sonarr?.length)
+          html += renderQueueTable("📺 Sonarr", q.sonarr, ["Series", "Ep", "Status", "Left", "Time", "Indexer"]);
+        if (!html) html = "✅ No active downloads.";
+      }
+      targetDiv.innerHTML = html;
+    } catch (e) {
+      targetDiv.textContent = `⚠️ Failed to load queue (${e.message})`;
+    }
+  }
+
+  // --- === Upgrade/Force Actions === ---
+  async function handleUpgrade(target, id, force = false) {
+    const endpoint = force ? "/api/force-upgrade-item" : "/api/upgrade-item";
+    const action = force ? "Force upgrade" : "Upgrade";
+    try {
+      log("start", `${action} → ${target} (ID ${id})`);
+      const res = await apiFetch(endpoint, {
+        method: "POST",
+        body: JSON.stringify({ id, target }),
+      });
+      if (res.ok || res.ok === true) log("ok", `${action} started`);
+      else log("warn", `${action} failed`);
+    } catch (e) {
+      log("warn", `${action} failed: ${e.message}`);
+    }
+  }
+
+  // --- === EventSource Setup === ---
+  function initEventStream() {
+    const es = new EventSource("/api/events");
+    es.addEventListener("info", (e) => log("info", e.data));
+    es.addEventListener("error", (e) => log("warn", e.data));
+    es.addEventListener("done", (e) => {
+      log("ok", e.data);
+      loadSummary();
+      loadQueue(state.lastTab);
+    });
+    es.onerror = () => log("warn", "Event stream disconnected.");
+    state.eventSource = es;
+  }
+
+  // --- === Trigger Upgrade === ---
+  async function triggerUpgrade() {
+    log("start", "Triggering upgrade...");
+    try {
+      await apiFetch("/api/trigger", {
+        method: "POST",
+        body: JSON.stringify({ target: "both" }),
+      });
+      log("ok", "Upgrade trigger accepted.");
+    } catch (e) {
+      log("warn", `Upgrade trigger failed: ${e.message}`);
+    }
+  }
+
+  // --- === Settings === ---
+  async function loadSettings() {
+    try {
+      const s = await apiFetch("/api/settings");
+      qs("#cron-input").value = s.cron ?? "";
+      qs("#chk-radarr").checked = !!s.process_radarr;
+      qs("#chk-sonarr").checked = !!s.process_sonarr;
+      qs("#num-movies").value = s.num_movies ?? 1;
+      qs("#num-episodes").value = s.num_episodes ?? 1;
+      qs("#chk-force").checked = !!s.force_enabled;
+    } catch {
+      log("warn", "Failed to load settings");
+    }
+  }
+
+  async function saveSettings() {
+    const cron = qs("#cron-input").value.trim();
+    if (!/^(\S+\s+){4}\S+$/.test(cron)) {
+      alert("⚠️ Invalid cron expression (e.g. */5 * * * *).");
       return;
     }
-    logLine("[*] ", `Force upgrading ${target} item ${id}...`);
-    const res = await fetch('/api/force-upgrade-item', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${TOKEN}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ id, target })
-    });
-    logLine(res.ok ? "[✓] " : "[!] ", res.ok ? "Force upgrade started" : "Force upgrade failed");
+    const settings = {
+      cron,
+      process_radarr: qs("#chk-radarr").checked,
+      process_sonarr: qs("#chk-sonarr").checked,
+      num_movies: parseInt(qs("#num-movies").value, 10),
+      num_episodes: parseInt(qs("#num-episodes").value, 10),
+      force_enabled: qs("#chk-force").checked,
+    };
+    try {
+      await apiFetch("/api/settings", {
+        method: "POST",
+        body: JSON.stringify(settings),
+      });
+      log("ok", "Settings saved");
+    } catch {
+      log("warn", "Settings save failed");
+    }
   }
-});
 
-// --- Tabs ---
-const tabBtns = document.querySelectorAll('.tab-btn');
-const tabPanels = document.querySelectorAll('.queue-tab');
+  // --- === Tabs === ---
+  function activateTab(targetId) {
+    state.lastTab = targetId.replace("queue-", "");
+    qsa(".tab-btn").forEach(b => b.classList.toggle("active", b.dataset.target === targetId));
+    qsa(".queue-tab").forEach(p => p.classList.toggle("active", p.id === targetId));
+    loadQueue(state.lastTab);
+  }
 
-function activateTab(targetId) {
-  tabBtns.forEach(b => b.classList.toggle('active', b.dataset.target === targetId));
-  tabPanels.forEach(p => p.classList.toggle('active', p.id === targetId));
+  // --- === Init Dashboard === ---
+function initDashboard() {
+  els.logOutput = qs("#log-output");
+  els.summary = qs("#upgrade-summary");
+  els.triggerBtn = qs("#trigger-upgrade");
+  initToken();
+  initEventStream();
 
-  if (targetId === 'queue-all') loadQueue('all');
-  else if (targetId === 'queue-tagged') loadQueue('tagged');
-  else if (targetId === 'queue-eligible') loadQueue('eligible');
+  // Bind Events
+  els.triggerBtn.addEventListener("click", triggerUpgrade);
+  qsa(".tab-btn").forEach(btn =>
+    btn.addEventListener("click", () => activateTab(btn.dataset.target))
+  );
+  qs("#save-settings").addEventListener("click", saveSettings);
+  qs("#test-cron").addEventListener("click", () => {
+    const cron = qs("#cron-input").value.trim();
+    alert(/^(\S+\s+){4}\S+$/.test(cron)
+      ? "✅ Cron expression looks valid!"
+      : "⚠️ Invalid cron expression.");
+  });
+
+  // Global upgrade buttons (delegated)
+  document.addEventListener("click", (e) => {
+    if (e.target.classList.contains("upgrade-btn")) {
+      handleUpgrade(e.target.dataset.target, e.target.dataset.id, false);
+    } else if (e.target.classList.contains("force-btn")) {
+      if (confirm("⚠️ Force upgrade will delete existing file. Continue?"))
+        handleUpgrade(e.target.dataset.target, e.target.dataset.id, true);
+    }
+  });
+
+  // ✅ Tabellen-Sortierung einmalig initialisieren
+  initTableSorting();
+
+  // Initial loads
+  loadSummary();
+  loadQueue("all");
+  loadSettings();
+  activateTab("queue-all");
+
+  // Refresh loops
+  setInterval(loadSummary, 60000);
+  setInterval(() => loadQueue(state.lastTab), 15000);
 }
 
-tabBtns.forEach(btn => btn.addEventListener('click', () => activateTab(btn.dataset.target)));
 
-// --- Initial ---
-loadSummary();
-loadQueue();
-setInterval(loadSummary, 60000);
-setInterval(loadQueue, 15000);
-activateTab('queue-all');
+  // Initialize after DOM ready
+  document.addEventListener("DOMContentLoaded", initDashboard);
+})();

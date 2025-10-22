@@ -238,3 +238,243 @@ th {
 .btn-mini.force-btn:hover {
   background: #ff6655;
 }
+/* --- Settings Panel --- */
+.settings-panel {
+  margin-top: 2em;
+  padding: 1.5em;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 12px;
+  color: #ddd;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  max-width: 700px;
+  margin-inline: auto;
+}
+
+.settings-panel h2 {
+  margin-bottom: 1em;
+  color: #ffd54f;
+  text-align: center;
+}
+
+.settings-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1em;
+  gap: 1em;
+}
+
+.settings-group label {
+  font-size: 0.95em;
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+}
+
+.settings-group input[type="text"],
+.settings-group input[type="number"] {
+  background: #222;
+  color: #fff;
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 0.3em 0.6em;
+  width: 180px;
+}
+
+.settings-group input[type="checkbox"] {
+  accent-color: #ffd54f;
+  transform: scale(1.2);
+}
+
+.settings-actions {
+  text-align: center;
+  margin-top: 1em;
+}
+
+.btn-primary {
+  background: #ffd54f;
+  color: #000;
+  border: none;
+  border-radius: 8px;
+  padding: 0.5em 1.5em;
+  cursor: pointer;
+  font-weight: bold;
+  transition: background 0.2s;
+}
+
+.btn-primary:hover {
+  background: #ffea80;
+}
+
+.btn-mini {
+  background: #333;
+  color: #ddd;
+  border: 1px solid #555;
+  border-radius: 6px;
+  padding: 0.3em 0.6em;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+
+.btn-mini:hover {
+  background: #444;
+}
+
+.settings-panel input[type="text"] {
+  width: 100%;
+  background: #222;
+  color: var(--text-color);
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 0.3em;
+}
+
+/* === Settings + Log Wrapper === */
+.settings-log-wrapper {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2em;
+  margin: 2em auto;
+  max-width: 1200px;
+  flex-wrap: wrap;
+}
+
+/* === Settings Panel === */
+.settings-panel {
+  flex: 0 0 45%;
+  max-width: 500px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 12px;
+  padding: 1.5em;
+  color: #ddd;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}
+
+.settings-panel h2 {
+  text-align: center;
+  color: #ffd54f;
+  margin-bottom: 1em;
+}
+
+.settings-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1em;
+  gap: 1em;
+}
+
+.settings-group label {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  font-size: 0.95em;
+}
+
+.settings-group input[type="text"],
+.settings-group input[type="number"] {
+  background: #222;
+  color: #fff;
+  border: 1px solid #444;
+  border-radius: 6px;
+  padding: 0.3em 0.6em;
+  width: 180px;
+}
+
+.settings-group input[type="checkbox"] {
+  accent-color: #ffd54f;
+  transform: scale(1.2);
+}
+
+.settings-actions {
+  text-align: center;
+  margin-top: 1em;
+}
+
+.btn-primary {
+  background: #ffd54f;
+  color: #000;
+  border: none;
+  border-radius: 8px;
+  padding: 0.5em 1.5em;
+  cursor: pointer;
+  font-weight: bold;
+  transition: background 0.2s;
+}
+
+.btn-primary:hover {
+  background: #ffea80;
+}
+
+/* === Log Section === */
+.log-section {
+  flex: 1;
+  background: #111;
+  border: 1px solid #333;
+  border-radius: 12px;
+  padding: 1em;
+  color: #ccc;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  max-height: 620px; /* roughly matches settings height */
+}
+
+.log-section h2 {
+  text-align: center;
+  color: #ffd54f;
+  margin-bottom: 0.5em;
+}
+
+/* Scrollable log output */
+.log-output {
+  background: #000;
+  color: #0f0;
+  font-family: monospace;
+  font-size: 0.9em;
+  line-height: 1.4em;
+  border: 1px solid #222;
+  border-radius: 6px;
+  padding: 0.5em;
+  overflow-y: auto;
+  flex: 1;
+  max-height: 540px;
+}
+
+/* === Responsive behavior === */
+@media (max-width: 900px) {
+  .settings-log-wrapper {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .settings-panel,
+  .log-section {
+    flex: 1 1 100%;
+    max-width: 100%;
+  }
+  .log-output {
+    max-height: 400px;
+  }
+}
+
+.sortable-header {
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+}
+.sortable-header.asc .sort-icon::after {
+  content: "▲";
+  font-size: 0.7em;
+  margin-left: 4px;
+}
+.sortable-header.desc .sort-icon::after {
+  content: "▼";
+  font-size: 0.7em;
+  margin-left: 4px;
+}
