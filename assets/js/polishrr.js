@@ -5,7 +5,6 @@
 // --- Element Refs ---
 const logOutput = document.getElementById('log-output');
 const summaryDiv = document.getElementById('upgrade-summary');
-const queueDiv = document.getElementById('download-queue');
 const triggerBtn = document.getElementById('trigger-upgrade');
 
 // --- Token Setup ---

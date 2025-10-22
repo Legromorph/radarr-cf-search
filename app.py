@@ -336,6 +336,12 @@ def get_upgrade_status(detailed: bool = False) -> dict:
 def get_download_queue(tagged_only: bool = False) -> dict:
     """Return current Radarr & Sonarr download queues with status info."""
     data = {"radarr": [], "sonarr": []}
+    
+    if tagged_only:
+        return {
+            "radarr": RECENT_UPGRADES.get("radarr", []),
+            "sonarr": RECENT_UPGRADES.get("sonarr", [])
+        }
 
     def safe_api_get(url: str, headers: dict, label: str):
         """Wrap api_get with better error context."""
@@ -361,19 +367,8 @@ def get_download_queue(tagged_only: bool = False) -> dict:
 
             tag_id = ensure_tag_exists(base_url, headers, UPGRADE_TAG)
 
+            # Normale Queue-Verarbeitung:
             for item in queue_items:
-                if tagged_only:
-                    tags = []
-                    if isinstance(item.get("movie"), dict):
-                        tags = item["movie"].get("tags", [])
-                    elif item.get("movieId"):
-                        try:
-                            mv = api_get(f"{base_url}{API_PATH}movie/{item['movieId']}", headers)
-                            tags = mv.get("tags", [])
-                        except Exception:
-                            tags = []
-                    if tag_id not in tags:
-                        continue
                 if not isinstance(item, dict):
                     continue
                 data["radarr"].append({
@@ -458,6 +453,71 @@ def get_download_queue(tagged_only: bool = False) -> dict:
             logger.info(f"Fetched {len(data['sonarr'])} Sonarr queue items")
     except Exception as e:
         logger.exception("Sonarr queue fetch failed unexpectedly:")
+        data["sonarr_error"] = str(e)
+
+    return data
+
+def get_eligible_items() -> dict:
+    """Return Radarr & Sonarr items that are below cutoff and NOT tagged for upgrade."""
+    data = {"radarr": [], "sonarr": []}
+
+    try:
+        if get_env_bool("PROCESS_RADARR"):
+            base_url = os.getenv("RADARR_URL", "")
+            headers = {"Authorization": os.getenv("RADARR_API_KEY", "")}
+            tag_id = ensure_tag_exists(base_url, headers, UPGRADE_TAG)
+            quality_profiles = api_get(f"{base_url}{API_PATH}qualityprofile", headers)
+            quality_scores = {q["id"]: q["cutoffFormatScore"] for q in quality_profiles}
+            movies = api_get(f"{base_url}{API_PATH}movie", headers)
+
+            for movie in movies:
+                if not movie.get("monitored") or not movie.get("movieFileId"):
+                    continue
+
+                file_data = api_get(f"{base_url}{API_PATH}moviefile/{movie['movieFileId']}", headers)
+                profile_id = movie["qualityProfileId"]
+                if file_data["customFormatScore"] < quality_scores[profile_id] and tag_id not in movie.get("tags", []):
+                    data["radarr"].append({
+                        "title": movie["title"],
+                        "status": "Below Cutoff",
+                        "sizeleft": 0,
+                        "timeleft": "-",
+                        "indexer": "-",
+                    })
+    except Exception as e:
+        logger.error(f"Eligible Radarr fetch failed: {e}")
+        data["radarr_error"] = str(e)
+
+    try:
+        if get_env_bool("PROCESS_SONARR"):
+            base_url = os.getenv("SONARR_URL", "")
+            headers = {"Authorization": os.getenv("SONARR_API_KEY", "")}
+            tag_id = ensure_tag_exists(base_url, headers, UPGRADE_TAG)
+            quality_profiles = api_get(f"{base_url}{API_PATH}qualityprofile", headers)
+            quality_scores = {q["id"]: q["cutoffFormatScore"] for q in quality_profiles}
+            series_list = api_get(f"{base_url}{API_PATH}series", headers)
+
+            for serie in series_list:
+                profile_id = serie["qualityProfileId"]
+                if serie["statistics"]["episodeFileCount"] == 0:
+                    continue
+                episodes = api_get(f"{base_url}{API_PATH}episodefile?seriesId={serie['id']}", headers)
+
+                for ep in episodes:
+                    if ep["customFormatScore"] < quality_scores[profile_id] and tag_id not in serie.get("tags", []):
+                        epnum = ep.get("episodeNumber", "?")
+                        season = ep.get("seasonNumber", "?")
+                        ep_label = f"S{int(season):02d}E{int(epnum):02d}"
+                        data["sonarr"].append({
+                            "series": serie["title"],
+                            "episode": ep_label,
+                            "status": "Below Cutoff",
+                            "sizeleft": 0,
+                            "timeleft": "-",
+                            "indexer": "-",
+                        })
+    except Exception as e:
+        logger.error(f"Eligible Sonarr fetch failed: {e}")
         data["sonarr_error"] = str(e)
 
     return data

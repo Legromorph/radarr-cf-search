@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 # Importiere deine bestehenden Upgrade-Funktionen aus app.py:
-from app import run_radarr_upgrade, run_sonarr_upgrade, get_upgrade_status, get_recent_upgrades, get_download_queue
+from app import run_radarr_upgrade, run_sonarr_upgrade, get_upgrade_status, get_recent_upgrades, get_download_queue, get_eligible_items
 
 app = FastAPI(title="Polishrr Web Service", version="1.0")
 
@@ -70,6 +70,8 @@ async def _run_and_stream(target: str):
     except Exception as e:
         await EVENT_QUEUE.put(f"event:error\ndata: {type(e).__name__}: {e}\n\n")
         return {"ok": False, "error": str(e)}
+    
+
 
 @app.get("/healthz", response_class=PlainTextResponse)
 async def healthz():
@@ -115,8 +117,13 @@ async def recent_upgrades(_: None = Depends(_auth)):
     return get_recent_upgrades()
 
 @app.get("/api/download-queue")
-async def download_queue(tagged: bool = False, _: None = Depends(_auth)):
-    return get_download_queue(tagged_only=tagged)
+async def download_queue(tagged: bool = False, eligible: bool = False, _: None = Depends(_auth)):
+    if tagged:
+        return get_download_queue(tagged_only=True)
+    elif eligible:
+        return get_eligible_items()
+    else:
+        return get_download_queue()
 
 # Static mount
 app.mount("/static", StaticFiles(directory="/app/static"), name="static")
