@@ -334,9 +334,9 @@ function initDashboard() {
   initEventStream();
 
   // Bind Events
-  els.triggerUpgrade.addEventListener("click", () => triggerUpgrade("both"));
-  els.triggerRadarr.addEventListener("click", () => triggerUpgrade("radarr"));
-  els.triggerSonarr.addEventListener("click", () => triggerUpgrade("sonarr"));
+  if (els.triggerUpgrade) els.triggerUpgrade.addEventListener("click", () => triggerUpgrade("both"));
+  if (els.triggerRadarr)  els.triggerRadarr.addEventListener("click", () => triggerUpgrade("radarr"));
+  if (els.triggerSonarr)  els.triggerSonarr.addEventListener("click", () => triggerUpgrade("sonarr"));
   qsa(".tab-btn").forEach(btn =>
     btn.addEventListener("click", () => activateTab(btn.dataset.target))
   );
