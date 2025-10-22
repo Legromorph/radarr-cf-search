@@ -187,6 +187,7 @@ function initTableSorting() {
   // --- === Load Queue Data === ---
   async function loadQueue(tab = "all") {
     const targetDiv = qs(`#queue-${tab}`);
+    const lastSort = state.lastSort;
     if (!targetDiv) return;
     try {
       const query = tab === "tagged" ? "?tagged=true" :
@@ -208,6 +209,22 @@ function initTableSorting() {
         if (!html) html = "✅ No active downloads.";
       }
       targetDiv.innerHTML = html;
+      if (tab === "eligible" && lastSort) {
+        const table = targetDiv.querySelector("table.sortable");
+        if (table) {
+          const { index, asc } = lastSort;
+          const th = table.querySelectorAll("th")[index];
+          if (th) th.classList.add(asc ? "asc" : "desc");
+
+          const rows = Array.from(table.querySelectorAll("tbody tr"));
+          rows.sort((a, b) => {
+            const t1 = a.children[index].innerText.toLowerCase();
+            const t2 = b.children[index].innerText.toLowerCase();
+            return asc ? t1.localeCompare(t2) : t2.localeCompare(t1);
+          });
+          rows.forEach(r => table.querySelector("tbody").appendChild(r));
+        }
+      }
     } catch (e) {
       targetDiv.textContent = `⚠️ Failed to load queue (${e.message})`;
     }
