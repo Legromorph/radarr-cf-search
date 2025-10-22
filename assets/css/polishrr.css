@@ -478,3 +478,14 @@ th {
   font-size: 0.7em;
   margin-left: 4px;
 }
+
+#trigger-buttons {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+#trigger-buttons button {
+  padding: 0.4rem 0.8rem;
+  font-weight: 600;
+}

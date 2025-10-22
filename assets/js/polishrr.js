@@ -262,16 +262,16 @@ function initTableSorting() {
   }
 
   // --- === Trigger Upgrade === ---
-  async function triggerUpgrade() {
-    log("start", "Triggering upgrade...");
+  async function triggerUpgrade(target = "both") {
+    log("start", `Triggering ${target} upgrade...`);
     try {
       await apiFetch("/api/trigger", {
         method: "POST",
-        body: JSON.stringify({ target: "both" }),
+        body: JSON.stringify({ target  }),
       });
-      log("ok", "Upgrade trigger accepted.");
+      log("ok", `${target} trigger accepted.`);
     } catch (e) {
-      log("warn", `Upgrade trigger failed: ${e.message}`);
+      log("warn", `${target} trigger failed: ${e.message}`);
     }
   }
 
@@ -328,11 +328,15 @@ function initDashboard() {
   els.logOutput = qs("#log-output");
   els.summary = qs("#upgrade-summary");
   els.triggerBtn = qs("#trigger-upgrade");
+  els.triggerRadarr  = qs("#trigger-radarr");
+  els.triggerSonarr  = qs("#trigger-sonarr");
   initToken();
   initEventStream();
 
   // Bind Events
-  els.triggerBtn.addEventListener("click", triggerUpgrade);
+  els.triggerUpgrade.addEventListener("click", () => triggerUpgrade("both"));
+  els.triggerRadarr.addEventListener("click", () => triggerUpgrade("radarr"));
+  els.triggerSonarr.addEventListener("click", () => triggerUpgrade("sonarr"));
   qsa(".tab-btn").forEach(btn =>
     btn.addEventListener("click", () => activateTab(btn.dataset.target))
   );
