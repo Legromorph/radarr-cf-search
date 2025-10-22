@@ -186,3 +186,55 @@ th {
   opacity: 1;
   transform: translateY(0);
 }
+
+/* Scrollbare Queue-Tabelle */
+.queue-table {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 1em;
+  border: 1px solid #333;
+}
+
+/* Tabellenbereich scrollbar machen */
+.queue-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.queue-table thead th {
+  position: sticky;
+  top: 0;
+  background: #222;
+  z-index: 1;
+}
+
+/* neuer Wrapper für Scroll */
+.queue-table .table-body-scroll {
+  max-height: 500px; /* oder 400px nach Geschmack */
+  overflow-y: auto;
+  display: block;
+}
+.queue-table .table-body-scroll table {
+  width: 100%;
+}
+
+.btn-mini {
+  background: var(--accent-alt);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 0.3em 0.6em;
+  font-size: 0.8em;
+  margin-right: 0.3em;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+.btn-mini:hover { background: #3399ff; }
+
+.btn-mini.force-btn {
+  background: #f44336;
+}
+.btn-mini.force-btn:hover {
+  background: #ff6655;
+}

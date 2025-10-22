@@ -279,6 +279,7 @@ def get_upgrade_status(detailed: bool = False) -> dict:
                         status["radarr"]["eligible_for_upgrade"] += 1
                 if detailed:
                     status["radarr"]["items"].append({
+                        "id": movie["id"],
                         "title": movie["title"],
                         "score": file_data["customFormatScore"],
                         "cutoff": quality_scores[profile_id],
@@ -316,6 +317,7 @@ def get_upgrade_status(detailed: bool = False) -> dict:
 
                 if detailed:
                     status["sonarr"]["items"].append({
+                        "id": ep["id"],
                         "series": serie["title"],
                         "episodeFileId": ep["id"],
                         "score": ep["customFormatScore"],
@@ -466,6 +468,7 @@ def get_eligible_items() -> dict:
             base_url = os.getenv("RADARR_URL", "")
             headers = {"Authorization": os.getenv("RADARR_API_KEY", "")}
             tag_id = ensure_tag_exists(base_url, headers, UPGRADE_TAG)
+
             quality_profiles = api_get(f"{base_url}{API_PATH}qualityprofile", headers)
             quality_scores = {q["id"]: q["cutoffFormatScore"] for q in quality_profiles}
             movies = api_get(f"{base_url}{API_PATH}movie", headers)
@@ -476,14 +479,19 @@ def get_eligible_items() -> dict:
 
                 file_data = api_get(f"{base_url}{API_PATH}moviefile/{movie['movieFileId']}", headers)
                 profile_id = movie["qualityProfileId"]
-                if file_data["customFormatScore"] < quality_scores[profile_id] and tag_id not in movie.get("tags", []):
+                current = file_data["customFormatScore"]
+                target = quality_scores[profile_id]
+
+                # nur unter cutoff + nicht getaggt
+                if current < target and tag_id not in movie.get("tags", []):
                     data["radarr"].append({
+                        "id": movie["id"],  # ✅ ID hinzufügen
                         "title": movie["title"],
-                        "status": "Below Cutoff",
-                        "sizeleft": 0,
-                        "timeleft": "-",
-                        "indexer": "-",
+                        "status": f"Score {current} / {target}",
+                        "score": current,
+                        "cutoff": target,
                     })
+
     except Exception as e:
         logger.error(f"Eligible Radarr fetch failed: {e}")
         data["radarr_error"] = str(e)
@@ -493,6 +501,7 @@ def get_eligible_items() -> dict:
             base_url = os.getenv("SONARR_URL", "")
             headers = {"Authorization": os.getenv("SONARR_API_KEY", "")}
             tag_id = ensure_tag_exists(base_url, headers, UPGRADE_TAG)
+
             quality_profiles = api_get(f"{base_url}{API_PATH}qualityprofile", headers)
             quality_scores = {q["id"]: q["cutoffFormatScore"] for q in quality_profiles}
             series_list = api_get(f"{base_url}{API_PATH}series", headers)
@@ -501,21 +510,24 @@ def get_eligible_items() -> dict:
                 profile_id = serie["qualityProfileId"]
                 if serie["statistics"]["episodeFileCount"] == 0:
                     continue
-                episodes = api_get(f"{base_url}{API_PATH}episodefile?seriesId={serie['id']}", headers)
 
+                episodes = api_get(f"{base_url}{API_PATH}episodefile?seriesId={serie['id']}", headers)
                 for ep in episodes:
-                    if ep["customFormatScore"] < quality_scores[profile_id] and tag_id not in serie.get("tags", []):
+                    current = ep["customFormatScore"]
+                    target = quality_scores[profile_id]
+                    if current < target and tag_id not in serie.get("tags", []):
                         epnum = ep.get("episodeNumber", "?")
                         season = ep.get("seasonNumber", "?")
                         ep_label = f"S{int(season):02d}E{int(epnum):02d}"
                         data["sonarr"].append({
+                            "id": ep["id"],  # ✅ ID hinzufügen
                             "series": serie["title"],
                             "episode": ep_label,
-                            "status": "Below Cutoff",
-                            "sizeleft": 0,
-                            "timeleft": "-",
-                            "indexer": "-",
+                            "status": f"Score {current} / {target}",
+                            "score": current,
+                            "cutoff": target,
                         })
+
     except Exception as e:
         logger.error(f"Eligible Sonarr fetch failed: {e}")
         data["sonarr_error"] = str(e)
@@ -525,6 +537,77 @@ def get_eligible_items() -> dict:
 def get_recent_upgrades() -> dict:
     """Return items that were tagged by the last runs."""
     return RECENT_UPGRADES
+
+def upgrade_single_item(target: str, item_id: int):
+    """Tag and trigger search for a single Radarr/Sonarr item."""
+    if target == "radarr":
+        base_url = os.getenv("RADARR_URL", "")
+        headers = {"Authorization": os.getenv("RADARR_API_KEY", "")}
+        tag_id = ensure_tag_exists(base_url, headers, UPGRADE_TAG)
+        movie = api_get(f"{base_url}{API_PATH}movie/{item_id}", headers)
+        movie["tags"] = list(set(movie.get("tags", [])) | {tag_id})
+        api_put(f"{base_url}{API_PATH}movie/{item_id}", headers, movie)
+        api_post(f"{base_url}{API_PATH}command", headers, {"name": "MoviesSearch", "movieIds": [item_id]})
+        logger.info(f"Triggered upgrade for Radarr movie {movie.get('title')}")
+        return {"ok": True}
+
+    elif target == "sonarr":
+        base_url = os.getenv("SONARR_URL", "")
+        headers = {"Authorization": os.getenv("SONARR_API_KEY", "")}
+        tag_id = ensure_tag_exists(base_url, headers, UPGRADE_TAG)
+
+        episode = api_get(f"{base_url}{API_PATH}episode/{item_id}", headers)
+
+        if isinstance(episode, list) and episode:
+            episode = episode[0]
+
+        series_id = episode.get("seriesId")
+        if not series_id:
+            raise ValueError(f"No seriesId found for episode {item_id}")
+
+        serie = api_get(f"{base_url}{API_PATH}series/{series_id}", headers)
+        serie["tags"] = list(set(serie.get("tags", [])) | {tag_id})
+        api_put(f"{base_url}{API_PATH}series/{series_id}", headers, serie)
+
+        api_post(f"{base_url}{API_PATH}command", headers, {"name": "EpisodeSearch", "episodeIds": [item_id]})
+        logger.info(f"Triggered upgrade for Sonarr episode {item_id}")
+        return {"ok": True}
+
+    else:
+        raise ValueError("Invalid target")
+
+
+def force_upgrade_single_item(target: str, item_id: int):
+    """Delete existing file and trigger forced search for a single item."""
+    def api_delete(url: str, headers: dict):
+        resp = requests.delete(url, headers=headers)
+        resp.raise_for_status()
+        return resp.json() if resp.text else {}
+
+    if target == "radarr":
+        base_url = os.getenv("RADARR_URL", "")
+        headers = {"Authorization": os.getenv("RADARR_API_KEY", "")}
+        movie = api_get(f"{base_url}{API_PATH}movie/{item_id}", headers)
+        file_id = movie.get("movieFileId")
+        if file_id:
+            api_delete(f"{base_url}{API_PATH}moviefile/{file_id}", headers)
+            logger.info(f"Deleted movie file for Radarr movie ID {item_id}")
+        api_post(f"{base_url}{API_PATH}command", headers, {"name": "MoviesSearch", "movieIds": [item_id]})
+        return {"ok": True}
+
+    elif target == "sonarr":
+        base_url = os.getenv("SONARR_URL", "")
+        headers = {"Authorization": os.getenv("SONARR_API_KEY", "")}
+        episode = api_get(f"{base_url}{API_PATH}episode/{item_id}", headers)
+        file_id = episode.get("episodeFileId")
+        if file_id:
+            api_delete(f"{base_url}{API_PATH}episodefile/{file_id}", headers)
+            logger.info(f"Deleted episode file for Sonarr episode ID {item_id}")
+        api_post(f"{base_url}{API_PATH}command", headers, {"name": "EpisodeSearch", "episodeIds": [item_id]})
+        return {"ok": True}
+
+    else:
+        raise ValueError("Invalid target")
 
 # ----------------------
 # Main

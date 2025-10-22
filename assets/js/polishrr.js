@@ -43,7 +43,7 @@ async function loadSummary() {
   }
 }
 
-// --- Load download queue ---
+// --- Load download/eligible queues ---
 async function loadQueue(tab = "all") {
   let url = "/api/download-queue";
   if (tab === "tagged") url += "?tagged=true";
@@ -60,11 +60,19 @@ async function loadQueue(tab = "all") {
     const q = await res.json();
 
     let html = "";
-    if (q.radarr?.length)
-      html += renderQueueTable('🎞 Radarr', q.radarr, ['Title', 'Status', 'Left', 'Time', 'Indexer']);
-    if (q.sonarr?.length)
-      html += renderQueueTable('📺 Sonarr', q.sonarr, ['Series', 'Ep', 'Status', 'Left', 'Time', 'Indexer']);
-    if (!html) html = "✅ No active downloads.";
+    if (tab === "eligible") {
+      if (q.radarr?.length)
+        html += renderQueueTable('🎞 Radarr Eligible', q.radarr, ['Title', 'Status', 'Actions'], true);
+      if (q.sonarr?.length)
+        html += renderQueueTable('📺 Sonarr Eligible', q.sonarr, ['Series', 'Ep', 'Status', 'Actions'], true);
+      if (!html) html = "✅ No eligible items.";
+    } else {
+      if (q.radarr?.length)
+        html += renderQueueTable('🎞 Radarr', q.radarr, ['Title', 'Status', 'Left', 'Time', 'Indexer']);
+      if (q.sonarr?.length)
+        html += renderQueueTable('📺 Sonarr', q.sonarr, ['Series', 'Ep', 'Status', 'Left', 'Time', 'Indexer']);
+      if (!html) html = "✅ No active downloads.";
+    }
 
     targetDiv.innerHTML = html;
   } catch (err) {
@@ -73,17 +81,16 @@ async function loadQueue(tab = "all") {
 }
 
 // --- Render helper ---
-function renderQueueTable(title, items, headers) {
-  let html = `<div class="queue-table"><h3>${title}</h3>`;
-  html += '<table><thead><tr>';
+function renderQueueTable(title, items, headers, isEligible = false) {
+  let html = `
+    <div class="queue-table">
+      <h3>${title}</h3>
+      <div class="table-body-scroll">
+        <table>
+          <thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+          <tbody>
+  `;
 
-  // Header row
-  for (const h of headers) {
-    html += `<th>${h}</th>`;
-  }
-  html += '</tr></thead><tbody>';
-
-  // Rows
   for (const item of items) {
     const status = item.status?.toLowerCase() || '';
     const statusClass =
@@ -93,8 +100,17 @@ function renderQueueTable(title, items, headers) {
 
     const cols = [];
 
-    // Flexible mapping based on table type
-    if (title.includes('Radarr')) {
+    if (isEligible) {
+      const id = item.id || item.movieId || item.episodeId;
+      if (!id) continue; // überspringe Zeilen ohne ID
+      const target = item.series ? "sonarr" : "radarr";
+      cols.push(item.title ?? item.series ?? '-');
+      cols.push(`<span class="${statusClass}">${item.status ?? '-'}</span>`);
+      cols.push(`
+        <button class="btn-mini upgrade-btn" data-id="${id}" data-target="${target}">Upgrade</button>
+        <button class="btn-mini force-btn" data-id="${id}" data-target="${target}">Force</button>
+      `);
+    } else if (title.includes('Radarr')) {
       cols.push(item.title ?? '-');
       cols.push(`<span class="${statusClass}">${item.status ?? '-'}</span>`);
       cols.push(`${item.sizeleft?.toFixed?.(2) ?? '-'} GB`);
@@ -112,7 +128,12 @@ function renderQueueTable(title, items, headers) {
     html += '<tr>' + cols.map(c => `<td>${c}</td>`).join('') + '</tr>';
   }
 
-  html += '</tbody></table></div>';
+  html += `
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
   return html;
 }
 
@@ -127,11 +148,8 @@ triggerBtn.onclick = async () => {
     },
     body: JSON.stringify({ target: 'both' })
   });
-  if (!res.ok) {
-    logLine("[!] ", "Trigger failed: " + res.status);
-  } else {
-    logLine("[✓] ", "Trigger accepted.");
-  }
+  if (!res.ok) logLine("[!] ", "Trigger failed: " + res.status);
+  else logLine("[✓] ", "Trigger accepted.");
 };
 
 // --- Live Event Stream ---
@@ -143,41 +161,62 @@ es.addEventListener('done', e => {
   loadSummary();
   loadQueue();
 });
-es.onmessage = e => logLine("", e.data);
 es.onerror = () => logLine("[!] ", "Event stream disconnected.");
 
-// --- Initial Load ---
-loadSummary();
-loadQueue();
-setInterval(loadSummary, 60000);
-setInterval(loadQueue, 15000);
+// --- Button Events (global einmalig!) ---
+document.addEventListener('click', async (e) => {
+  if (e.target.classList.contains('upgrade-btn')) {
+    const id = e.target.dataset.id;
+    const target = e.target.dataset.target;
+    logLine("[*] ", `Upgrading ${target} item ${id}...`);
+    const res = await fetch('/api/upgrade-item', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ id, target })
+    });
+    logLine(res.ok ? "[✓] " : "[!] ", res.ok ? "Upgrade started" : "Upgrade failed");
+  }
 
-// ==============================
-//  Tabs & Dynamic Content
-// ==============================
+  if (e.target.classList.contains('force-btn')) {
+    const id = e.target.dataset.id;
+    const target = e.target.dataset.target;
+    if (!confirm(`⚠️ Force upgrade will delete the existing file for ${target.toUpperCase()} item ${id}. Continue?`)) {
+      return;
+    }
+    logLine("[*] ", `Force upgrading ${target} item ${id}...`);
+    const res = await fetch('/api/force-upgrade-item', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ id, target })
+    });
+    logLine(res.ok ? "[✓] " : "[!] ", res.ok ? "Force upgrade started" : "Force upgrade failed");
+  }
+});
+
+// --- Tabs ---
 const tabBtns = document.querySelectorAll('.tab-btn');
 const tabPanels = document.querySelectorAll('.queue-tab');
 
 function activateTab(targetId) {
-  // Buttons aktiv
   tabBtns.forEach(b => b.classList.toggle('active', b.dataset.target === targetId));
-  // Panels anzeigen/verstecken
   tabPanels.forEach(p => p.classList.toggle('active', p.id === targetId));
 
-  // Daten für das aktive Panel laden
-  if (targetId === 'queue-all') {
-    loadQueue('all');
-  } else if (targetId === 'queue-tagged') {
-    loadQueue('tagged');
-  } else if (targetId === 'queue-eligible') {
-    loadQueue('eligible');
-  }
+  if (targetId === 'queue-all') loadQueue('all');
+  else if (targetId === 'queue-tagged') loadQueue('tagged');
+  else if (targetId === 'queue-eligible') loadQueue('eligible');
 }
 
-// Klick-Handler
-tabBtns.forEach(btn => {
-  btn.addEventListener('click', () => activateTab(btn.dataset.target));
-});
+tabBtns.forEach(btn => btn.addEventListener('click', () => activateTab(btn.dataset.target)));
 
-// Initial: "Alle"
+// --- Initial ---
+loadSummary();
+loadQueue();
+setInterval(loadSummary, 60000);
+setInterval(loadQueue, 15000);
 activateTab('queue-all');

@@ -1,13 +1,23 @@
 # web_service.py
 import os, hmac, hashlib, asyncio, ipaddress, datetime as dt
 from typing import Optional, AsyncGenerator
-from fastapi import FastAPI, BackgroundTasks, Request, HTTPException, Depends
+from fastapi import FastAPI, BackgroundTasks, Request, HTTPException, Depends, Body
 from fastapi.responses import PlainTextResponse, StreamingResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+import traceback
 
 # Importiere deine bestehenden Upgrade-Funktionen aus app.py:
-from app import run_radarr_upgrade, run_sonarr_upgrade, get_upgrade_status, get_recent_upgrades, get_download_queue, get_eligible_items
+from app import (
+    run_radarr_upgrade,
+    run_sonarr_upgrade,
+    get_upgrade_status,
+    get_recent_upgrades,
+    get_download_queue,
+    upgrade_single_item,
+    force_upgrade_single_item,
+    get_eligible_items
+)
 
 app = FastAPI(title="Polishrr Web Service", version="1.0")
 
@@ -118,12 +128,40 @@ async def recent_upgrades(_: None = Depends(_auth)):
 
 @app.get("/api/download-queue")
 async def download_queue(tagged: bool = False, eligible: bool = False, _: None = Depends(_auth)):
-    if tagged:
-        return get_download_queue(tagged_only=True)
-    elif eligible:
+    if eligible:
         return get_eligible_items()
-    else:
-        return get_download_queue()
+    return get_download_queue(tagged_only=tagged)
+    
+@app.post("/api/upgrade-item")
+async def upgrade_item(body: dict = Body(...), _: None = Depends(_auth)):
+    target = body.get("target")
+    item_id = body.get("id")
+    if not target or not item_id:
+        raise HTTPException(status_code=400, detail="Missing target or id")
+
+    try:
+        result = upgrade_single_item(target, int(item_id))
+        return result
+    except Exception as e:
+        import logging
+        logging.exception(f"❌ upgrade_item failed for {target} id={item_id}: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/force-upgrade-item")
+async def force_upgrade_item(body: dict = Body(...), _: None = Depends(_auth)):
+    target = body.get("target")
+    item_id = body.get("id")
+    if not target or not item_id:
+        raise HTTPException(status_code=400, detail="Missing target or id")
+    try:
+        result = force_upgrade_single_item(target, int(item_id))
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+
 
 # Static mount
 app.mount("/static", StaticFiles(directory="/app/static"), name="static")
