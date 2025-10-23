@@ -1,17 +1,41 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -Eeuo pipefail
 
-# Replace placeholder in cron job template with the environment variable
-if [ -z "$CRON_SCHEDULE" ]; then
-  echo "CRON_SCHEDULE environment variable not set, using default schedule of every hour."
-  CRON_SCHEDULE="0 * * * *"  # Default to every hour if not set
+# --- Fix Permissions für /config (Host-Volume)
+if [ ! -w /config ]; then
+  echo "Fixing /config permissions..."
+  chmod -R a+rwX /config 2>/dev/null || true
 fi
 
-# Replace the cronjob template with the actual cron schedule
-sed "s|\${CRON_SCHEDULE}|$CRON_SCHEDULE|" /etc/cron.d/my-cron-job > /etc/cron.d/my-cron-job.actual
+# --- Defaults
+: "${CRON_SCHEDULE:=0 * * * *}"  # jede Stunde
+: "${TZ:=Etc/UTC}"
+: "${WEB_SERVICE_BIND:=0.0.0.0}"
+: "${WEB_SERVICE_PORT:=8998}"
+: "${POLISHRR_TOKEN:?POLISHRR_TOKEN env var required}"
 
-# Set permissions for the cron job file
-chmod 0644 /etc/cron.d/my-cron-job.actual
-crontab /etc/cron.d/my-cron-job.actual
+echo "Starting Polishrr with schedule '${CRON_SCHEDULE}' and web port ${WEB_SERVICE_PORT}"
 
-# Start cron in the foreground
-cron -f
+# --- Cronjob vorbereiten
+if [ ! -f /etc/cron.d/my-cron-job ]; then
+  echo "Error: /etc/cron.d/my-cron-job template missing."
+  exit 1
+fi
+
+mkdir -p /app/runtime
+sed "s|\${CRON_SCHEDULE}|$CRON_SCHEDULE|" /etc/cron.d/my-cron-job > /app/runtime/my-cron-job.actual
+chmod 0644 /app/runtime/my-cron-job.actual
+crontab /app/runtime/my-cron-job.actual
+cron
+echo "Cron started."
+
+# --- Fix permissions (important for logging) ---
+chmod -R 777 /app/runtime
+
+# --- Webservice (non-root) starten
+echo "Launching web service as 'polishrr'..."
+exec su -s /bin/bash polishrr -c "uvicorn web_service:app \
+  --host ${WEB_SERVICE_BIND} \
+  --port ${WEB_SERVICE_PORT} \
+  --proxy-headers --forwarded-allow-ips='*' \
+  --log-level info"
